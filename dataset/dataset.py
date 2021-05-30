@@ -4,6 +4,8 @@ import json
 import unicodedata
 import numpy as np
 from transformers import BertTokenizer
+
+import torch
 from torch.utils.data import Dataset, DataLoader
 
 
@@ -130,12 +132,14 @@ class all_dataset(Dataset):
                         )
                         choice = choice[:choice_len]
 
-                    tokenize_input = tokenizer(
+                    tokenize_data = tokenizer(
                         document,
                         question + choice,
-                        padding=True,
+                        padding="max_length",
                         truncation=True,
+                        add_special_tokens=True,
                         max_length=max_input_len,
+                        return_tensors="pt",
                     )
 
                     self.QA.append(
@@ -143,9 +147,9 @@ class all_dataset(Dataset):
                             "document": document,
                             "question": question,
                             "choice": choice,
-                            "input_ids": tokenize_input["input_ids"],
-                            "token_type_ids": tokenize_input["token_type_ids"],
-                            "attention_mask": tokenize_input["attention_mask"],
+                            "input_ids": tokenize_data["input_ids"].flatten(),
+                            "token_type_ids": tokenize_data["token_type_ids"].flatten(),
+                            "attention_mask": tokenize_data["attention_mask"].flatten(),
                             "answer": answer,
                         }
                     )
