@@ -14,6 +14,7 @@ def set_random_seed(seed):
 
 def get_device(_id=0):
     assert torch.cuda.device_count() > _id
+    print("===== [Device Information] =====")
 
     if torch.cuda.is_available():
         torch.cuda.set_device(_id)
@@ -28,4 +29,5 @@ def get_device(_id=0):
         print("No GPU available, using the CPU instead.")
         device = torch.device("cpu")
 
+    print("=" * 32)
     return device

@@ -1,24 +1,30 @@
+import yaml
 import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformers import (
-    BertModel,
-    get_linear_schedule_with_warmup,
-)
+from transformers import BertModel, BertForSequenceClassification
+
+with open("configs.yaml", "r") as stream:
+    configs = yaml.safe_load(stream)
 
 
 class BertClassifier(nn.Module):
     def __init__(self, freeze_bert=True):
         super().__init__()
-        self.bert = BertModel.from_pretrained("bert-base-chinese")
-        D_in, H, D_out = 768, 50, 1
-        self.classifier = nn.Sequential(
-            nn.Linear(D_in, H),
-            nn.ReLU(),
-            # nn.Dropout(0.5),
-            nn.Linear(H, D_out),
-        )
+        # self.bert = BertModel.from_pretrained("bert-base-chinese")
+        self.bert = BertForSequenceClassification.from_pretrained("bert-base-chinese")
+        D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
+
+        hidden_layers = []
+        hidden_layers.append(nn.Linear(D_in, hidden_dim))
+        for _ in range(configs["n_cls_layers"]):
+            hidden_layers.append(nn.Linear(hidden_dim, hidden_dim))
+            hidden_layers.append(nn.ReLU())
+            hidden_layers.append(nn.Dropout(configs["dropout"]))
+        hidden_layers.append(nn.Linear(hidden_dim, D_out))
+        self.classifier = nn.Sequential(*hidden_layers)
+
         if freeze_bert:
             for param in self.bert.parameters():
                 param.requires_grad = False
@@ -52,10 +58,12 @@ class QA_Model(nn.Module):
         outputs = torch.cat(outputs, dim=-1)
         return outputs
 
-    def loss_func(self, input_ids, attention_mask, answer):
-        # pred = self(input_ids, attention_mask).reshape(-1)
-        # answer = answer.reshape(-1)
-        pred = self(input_ids, attention_mask)
-        answer = torch.argmax(answer, dim=1)
-        return F.cross_entropy(pred, answer)
-        # return F.binary_cross_entropy(pred, answer)
+    def pred_and_loss(self, input_ids, attention_mask, answer):
+        outputs = self(input_ids, attention_mask)
+        pred = torch.argmax(outputs, dim=1)
+        answer = answer.reshape(-1)
+        return pred, F.binary_cross_entropy(outputs.reshape(-1), answer)
+        # outputs = self(input_ids, attention_mask)
+        # pred = torch.argmax(outputs, dim=1)
+        # answer = torch.argmax(answer, dim=1)
+        # return pred, F.cross_entropy(outputs, answer)

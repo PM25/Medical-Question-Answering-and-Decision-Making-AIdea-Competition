@@ -1,24 +1,21 @@
 ---
-# data
-qa_data: data/SampleData_QA.json
-risk_data: data/SampleData_RiskClassification.csv
+# data:
+qa_data: data/Train_qa_ans.json # data/SampleData_QA.json
+risk_data: data/Train_risk_classification_ans.csv # data/SampleData_RiskClassification.csv
 model_path: saved_model/_qa
 
 # train
 seed: 1009
 epochs: 50
-batch_size: 128
-optimizer: adam
+batch_size: 8
 learning_rate: 0.001
-weight_decay: 0
-val_size: 0.1
+warmup_steps: 0
+val_size: 0.15
 
-log_step: 15
+log_step: 1
+log_path: log
 
 # model
-embed_dim: 300
+hidden_dim: 300
 n_cls_layers: 2
 dropout: 0.2
-
-# pretrained vocab / embeddings
-embed_file: data/cc.zh.300.vec

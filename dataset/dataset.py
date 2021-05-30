@@ -95,9 +95,9 @@ class all_dataset(Dataset):
         qa_file: str,
         risk_file: str,
         max_sent_len: int = 52,
-        max_doc_len: int = 170,
-        max_q_len: int = 20,
-        max_c_len: int = 18,
+        max_doc_len: int = 430,
+        max_q_len: int = 50,
+        max_c_len: int = 32,
     ):
         super().__init__()
         tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
