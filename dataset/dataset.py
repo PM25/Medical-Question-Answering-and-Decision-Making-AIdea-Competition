@@ -113,10 +113,18 @@ class all_dataset(Dataset):
 
         self.QA = []
         for idx, article in enumerate(qa):
+            document = self.articles[idx]
             for question_data in article:
+                question = "".join(question_data[0])
+                QA_datum = {
+                    "document": document,
+                    "question": question,
+                    "choices": [],
+                    "input_ids": [],
+                    "attention_mask": [],
+                    "answer": [],
+                }
                 for idx, choice_data in enumerate(question_data[1]):
-                    document = self.articles[idx]
-                    question = "".join(question_data[0])
                     choice = "".join(choice_data[0])
                     answer = choice_data[1]
 
@@ -124,17 +132,21 @@ class all_dataset(Dataset):
                     len_d, len_q, len_c = len(document), len(question), len(choice)
                     if len_d + len_q + len_c > max_input_len:
                         doc_len = max(max_input_len - len_q - len_c, max_doc_len)
-                        document = document[:doc_len]
+                        trunc_document = document[:doc_len]
                         question_len = max(max_input_len - doc_len - len_c, max_q_len)
-                        question = question[:question_len]
+                        trunc_question = question[:question_len]
                         choice_len = max(
                             max_input_len - doc_len - question_len, max_c_len
                         )
-                        choice = choice[:choice_len]
+                        trunc_choice = choice[:choice_len]
+                    else:
+                        trunc_document = document
+                        trunc_question = question
+                        trunc_choice = choice
 
                     tokenize_data = tokenizer(
-                        document,
-                        question + choice,
+                        trunc_document,
+                        trunc_question + trunc_choice,
                         padding="max_length",
                         truncation=True,
                         add_special_tokens=True,
@@ -142,17 +154,16 @@ class all_dataset(Dataset):
                         return_tensors="pt",
                     )
 
-                    self.QA.append(
-                        {
-                            "document": document,
-                            "question": question,
-                            "choice": choice,
-                            "input_ids": tokenize_data["input_ids"].flatten(),
-                            "token_type_ids": tokenize_data["token_type_ids"].flatten(),
-                            "attention_mask": tokenize_data["attention_mask"].flatten(),
-                            "answer": answer,
-                        }
-                    )
+                    QA_datum["choices"].append(trunc_choice)
+                    QA_datum["input_ids"].append(tokenize_data["input_ids"])
+                    QA_datum["attention_mask"].append(tokenize_data["attention_mask"])
+                    QA_datum["answer"].append(answer)
+
+                QA_datum["input_ids"] = torch.cat(QA_datum["input_ids"])
+                QA_datum["attention_mask"] = torch.cat(QA_datum["attention_mask"])
+                QA_datum["answer"] = torch.tensor(QA_datum["answer"])
+
+                self.QA.append(QA_datum)
 
     def __len__(self):
         return len(self.QA)
