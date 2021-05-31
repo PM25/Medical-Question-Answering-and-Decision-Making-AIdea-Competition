@@ -3,7 +3,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformers import BertModel, BertForSequenceClassification
+from transformers import BertModel
 
 with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
@@ -32,36 +32,11 @@ class BertClassifier(nn.Module):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state_cls = outputs[0][:, 0, :]
         logits = self.classifier(last_hidden_state_cls)
-        return torch.sigmoid(logits)
-
-    def loss_func(self, input_ids, attention_mask, answer):
-        pred = self(input_ids, attention_mask).reshape(-1)
-        answer = answer.reshape(-1)
-        return F.binary_cross_entropy(pred, answer)
-
-
-class QA_Model(nn.Module):
-    def __init__(self, freeze_bert=True):
-        super().__init__()
-        self.bert_classifier = BertClassifier(freeze_bert)
-
-    def forward(self, input_ids, attention_mask):
-        # input_ids Shape: [Batch_Size, num_choices, input_length]
-        # attention Shape: [Batch_Size, num_choices, input_length]
-
-        outputs = []
-        for choice in range(input_ids.shape[1]):
-            _input_ids = input_ids[:, choice, :]
-            _attention_mask = attention_mask[:, choice, :]
-            outputs.append(self.bert_classifier(_input_ids, _attention_mask))
-        outputs = torch.cat(outputs, dim=-1)
-        return outputs
+        return torch.sigmoid(logits).flatten()
 
     def pred_and_loss(self, input_ids, attention_mask, answer):
         outputs = self(input_ids, attention_mask)
-        pred = torch.argmax(outputs, dim=1)
-        answer = answer.reshape(-1)
-        return pred, F.binary_cross_entropy(outputs.reshape(-1), answer)
+        return outputs, F.binary_cross_entropy(outputs, answer)
         # outputs = self(input_ids, attention_mask)
         # pred = torch.argmax(outputs, dim=1)
         # answer = torch.argmax(answer, dim=1)

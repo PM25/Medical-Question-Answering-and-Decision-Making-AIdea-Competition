@@ -8,14 +8,14 @@ model_path: saved_model/_qa
 seed: 1009
 epochs: 50
 batch_size: 8
-learning_rate: 0.001
-warmup_steps: 0
+learning_rate: 0.0001
+warmup_steps: 50
 val_size: 0.15
 
 log_step: 1
-log_path: log
 
 # model
 hidden_dim: 300
-n_cls_layers: 2
-dropout: 0.2
+n_cls_layers: 3
+dropout: 0.25
+freeze_bert: true

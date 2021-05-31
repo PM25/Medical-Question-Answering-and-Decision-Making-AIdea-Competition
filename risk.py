@@ -10,8 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup
 
-from dataset import all_dataset
-from model import QA_Model
+from dataset import risk_dataset
+from model import BertClassifier
 from utils.init import set_random_seed, get_device
 
 with open("configs.yaml", "r") as stream:
@@ -39,7 +39,7 @@ def train(model, train_loader, val_loader=None):
     writer = SummaryWriter()
 
     for epoch in range(configs["epochs"]):
-        avg_loss, train_loss = 0, 0
+        avg_loss, total_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
             input_ids = batch["input_ids"].to(torch_device)
@@ -53,11 +53,11 @@ def train(model, train_loader, val_loader=None):
             scheduler.step()
 
             avg_loss += loss.item()
-            train_loss += loss.item()
+            total_loss += loss.item()
 
             if val_loader is not None and step == len(train_loader):
                 val_loss, val_acc = evaluate(model, val_loader)
-                train_loss /= len(train_loader)
+                train_loss = total_loss / len(train_loader)
                 tqdm_train_loader.set_description(
                     f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f}",
                 )
@@ -87,8 +87,9 @@ def evaluate(model, val_loader):
         answer = batch["answer"].float().to(torch_device)
 
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
-        labels = torch.argmax(answer, dim=1)
-        val_acc.append((preds == labels).cpu().numpy().mean())
+        preds[preds > 0.5] = 1
+        preds[preds <= 0.5] = 0
+        val_acc.append((preds == answer).cpu().numpy().mean())
         val_loss.append(loss.item())
 
     val_acc = np.mean(val_acc)
@@ -98,7 +99,7 @@ def evaluate(model, val_loader):
 
 
 if __name__ == "__main__":
-    dataset = all_dataset(configs["qa_data"], configs["risk_data"])
+    dataset = risk_dataset(configs["qa_data"], configs["risk_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
@@ -113,5 +114,5 @@ if __name__ == "__main__":
     )
 
     qa_model = train(
-        QA_Model(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
+        BertClassifier(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
     )

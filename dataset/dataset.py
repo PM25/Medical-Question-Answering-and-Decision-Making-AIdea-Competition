@@ -80,6 +80,7 @@ def preprocess(qa_file: str, risk_file: str):
                 print(question["choices"])
                 print(unicodedata.normalize("NFKC", data["answer"]))
                 print(question["choices"][2]["label"])
+                continue
             if data["article_id"] != article_id:
                 qa.append([])
                 article_id = data["article_id"]
@@ -95,7 +96,7 @@ class all_dataset(Dataset):
         qa_file: str,
         risk_file: str,
         max_sent_len: int = 52,
-        max_doc_len: int = 430,
+        max_doc_len: int = 1,
         max_q_len: int = 50,
         max_c_len: int = 32,
     ):
@@ -164,6 +165,54 @@ class all_dataset(Dataset):
                 QA_datum["answer"] = torch.tensor(QA_datum["answer"])
 
                 self.QA.append(QA_datum)
+
+    def __len__(self):
+        return len(self.QA)
+
+    def __getitem__(self, idx: int):
+        return self.QA[idx]
+
+
+class risk_dataset(Dataset):
+    def __init__(
+        self,
+        qa_file: str,
+        risk_file: str,
+        max_doc_len: int = 512,
+    ):
+        super().__init__()
+        tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        articles, risk, qa = preprocess(qa_file, risk_file)
+
+        # `risk` shape: [N]
+        self.risk = np.array(risk)
+
+        self.articles = []
+        for document in articles:
+            document = "".join(["".join(sen) for sen in document])
+            self.articles.append(document)
+
+        self.QA = []
+        for idx, article in enumerate(qa):
+            document = self.articles[idx]
+            QA_datum = {
+                "document": document,
+                "input_ids": None,
+                "attention_mask": None,
+                "answer": torch.tensor(self.risk[idx]),
+            }
+
+            tokenize_data = tokenizer(
+                document,
+                padding="max_length",
+                truncation=True,
+                add_special_tokens=True,
+                max_length=max_doc_len,
+                return_tensors="pt",
+            )
+            QA_datum["input_ids"] = tokenize_data["input_ids"].flatten()
+            QA_datum["attention_mask"] = tokenize_data["attention_mask"].flatten()
+            self.QA.append(QA_datum)
 
     def __len__(self):
         return len(self.QA)
