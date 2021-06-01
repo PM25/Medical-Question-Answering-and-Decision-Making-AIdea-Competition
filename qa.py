@@ -131,8 +131,8 @@ if __name__ == "__main__":
         QA_Model(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
     )
 
-    # test_dataset = all_dataset(configs["dev_qa_data"], configs["dev_risk_data"])
-    # test_loader = DataLoader(
-    #     test_dataset, batch_size=configs["batch_size"], num_workers=4
-    # )
-    # print(write_preds(qa_model, test_loader))
+    test_dataset = all_dataset(configs["dev_qa_data"], configs["dev_risk_data"])
+    test_loader = DataLoader(
+        test_dataset, batch_size=configs["batch_size"], num_workers=4
+    )
+    print(write_preds(qa_model, test_loader))

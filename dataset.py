@@ -58,7 +58,11 @@ def preprocess(qa_file: str, risk_file: str):
             text = unicodedata.normalize("NFKC", line[2])
             text = text.replace(" ", "")
             article.append(split_sent(text))
-            risk.append(int(line[3]))
+            answer = unicodedata.normalize("NFKC", line[3])
+            if answer.isdigit():
+                risk.append(eval(answer))
+            else:
+                risk.append(-1)
 
         # One sample of QA
         # [Question, [[Choice_1, Answer_1], [Choice_2, Answer_2], [Choice_3, Answer_3]]]
@@ -72,7 +76,7 @@ def preprocess(qa_file: str, risk_file: str):
             for choice in question["choices"]:
                 text = list(unicodedata.normalize("NFKC", choice["text"]))
                 if "answer" not in data:
-                    temp.append([text, None])
+                    temp.append([text, -1])
                 elif unicodedata.normalize(
                     "NFKC", choice["label"]
                 ) in unicodedata.normalize("NFKC", data["answer"]):
@@ -81,17 +85,10 @@ def preprocess(qa_file: str, risk_file: str):
                 else:
                     temp.append([text, 0])
             question_text = list(unicodedata.normalize("NFKC", question["stem"]))
-            if not answer:
-                print("".join(question_text))
-                print(question["choices"])
-                print(unicodedata.normalize("NFKC", data["answer"]))
-                print(question["choices"][2]["label"])
-                continue
             if data["article_id"] != article_id:
                 qa.append([])
                 article_id = data["article_id"]
-
-            qa[-1].append([question_text, temp])
+            qa[-1].append([data["article_id"], question_text, temp])
 
     return article, risk, qa
 
@@ -124,16 +121,19 @@ class all_dataset(Dataset):
         self.data = []
         for idx, article in enumerate(qa):
             document = self.articles[idx]
+            risk_datum = self.process_risk(document, self.risk[idx])
 
             for question_data in article:
-                question = "".join(question_data[0])
-                choices = question_data[1]
+                article_id = question_data[0]
+                question = "".join(question_data[1])
+                choices = question_data[2]
 
                 qa_datum = self.process_qa(document, question, choices)
-                risk_datum = self.process_risk(document, self.risk[idx])
 
+                # FIXME: risk datum duplicate (should be 1 per document)
                 self.data.append(
                     {
+                        "document_id": article_id,
                         "document": document,
                         "question": question,
                         "qa_choices": qa_datum["choices"],
