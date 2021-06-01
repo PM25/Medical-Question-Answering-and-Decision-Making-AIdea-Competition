@@ -97,6 +97,21 @@ def evaluate(model, val_loader):
     return val_loss, val_acc
 
 
+def write_preds(model, data_loader):
+    model.eval()
+    model.to(torch_device)
+
+    all_preds = []
+    for step, batch in enumerate(data_loader):
+        input_ids = batch["input_ids"].to(torch_device)
+        attention_mask = batch["attention_mask"].to(torch_device)
+
+        preds = model(input_ids, attention_mask)
+        all_preds.extend(torch.argmax(preds, dim=1).tolist())
+
+    return all_preds
+
+
 if __name__ == "__main__":
     dataset = all_dataset(configs["qa_data"], configs["risk_data"])
 
@@ -115,3 +130,9 @@ if __name__ == "__main__":
     qa_model = train(
         QA_Model(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
     )
+
+    # test_dataset = all_dataset(configs["dev_qa_data"], configs["dev_risk_data"])
+    # test_loader = DataLoader(
+    #     test_dataset, batch_size=configs["batch_size"], num_workers=4
+    # )
+    # print(write_preds(qa_model, test_loader))

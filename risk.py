@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
+from sklearn.metrics import roc_auc_score
 
 import torch
 from torch.optim import AdamW
@@ -80,7 +81,8 @@ def evaluate(model, val_loader):
     model.eval()
     model.to(torch_device)
 
-    val_acc, val_loss = [], []
+    val_loss = []
+    all_preds, truth = [], []
     for step, batch in enumerate(val_loader):
         input_ids = batch["input_ids"].to(torch_device)
         attention_mask = batch["attention_mask"].to(torch_device)
@@ -89,13 +91,13 @@ def evaluate(model, val_loader):
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
         preds[preds > 0.5] = 1
         preds[preds <= 0.5] = 0
-        val_acc.append((preds == answer).cpu().numpy().mean())
+        all_preds.extend(preds.tolist())
+        truth.extend(answer.tolist())
         val_loss.append(loss.item())
 
-    val_acc = np.mean(val_acc)
     val_loss = np.mean(val_loss)
 
-    return val_loss, val_acc
+    return val_loss, roc_auc_score(truth, all_preds)
 
 
 if __name__ == "__main__":

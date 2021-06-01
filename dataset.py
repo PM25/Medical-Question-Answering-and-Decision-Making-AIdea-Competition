@@ -1,12 +1,16 @@
 import re
 import csv
 import json
+import yaml
 import unicodedata
 import numpy as np
 from transformers import BertTokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+with open("configs.yaml", "r") as stream:
+    configs = yaml.safe_load(stream)
 
 
 """
@@ -67,7 +71,9 @@ def preprocess(qa_file: str, risk_file: str):
             answer = ""
             for choice in question["choices"]:
                 text = list(unicodedata.normalize("NFKC", choice["text"]))
-                if unicodedata.normalize(
+                if "answer" not in data:
+                    temp.append([text, None])
+                elif unicodedata.normalize(
                     "NFKC", choice["label"]
                 ) in unicodedata.normalize("NFKC", data["answer"]):
                     temp.append([text, 1])
@@ -95,10 +101,9 @@ class all_dataset(Dataset):
         self,
         qa_file: str,
         risk_file: str,
-        max_sent_len: int = 52,
-        max_doc_len: int = 1,
-        max_q_len: int = 50,
-        max_c_len: int = 32,
+        max_doc_len: int = configs["max_document_len"],
+        max_q_len: int = configs["max_question_len"],
+        max_c_len: int = configs["max_choice_len"],
     ):
         super().__init__()
         tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
