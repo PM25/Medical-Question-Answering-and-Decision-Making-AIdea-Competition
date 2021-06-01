@@ -10,7 +10,7 @@ model_path: saved_model/_qa
 seed: 1009
 epochs: 50
 batch_size: 16
-learning_rate: 0.0005
+learning_rate: 0.0001
 warmup_steps: 20
 val_size: 0.1
 

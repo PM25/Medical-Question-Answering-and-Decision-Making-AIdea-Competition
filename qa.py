@@ -42,9 +42,9 @@ def train(model, train_loader, val_loader=None):
         avg_loss, train_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["input_ids"].to(torch_device)
-            attention_mask = batch["attention_mask"].to(torch_device)
-            answer = batch["answer"].float().to(torch_device)
+            input_ids = batch["qa_input_ids"].to(torch_device)
+            attention_mask = batch["qa_attention_mask"].to(torch_device)
+            answer = batch["qa_answer"].float().to(torch_device)
 
             optimizer.zero_grad()
             pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
@@ -82,9 +82,9 @@ def evaluate(model, val_loader):
 
     val_acc, val_loss = [], []
     for step, batch in enumerate(val_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-        answer = batch["answer"].float().to(torch_device)
+        input_ids = batch["qa_input_ids"].to(torch_device)
+        attention_mask = batch["qa_attention_mask"].to(torch_device)
+        answer = batch["qa_answer"].float().to(torch_device)
 
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
         labels = torch.argmax(answer, dim=1)
@@ -103,8 +103,8 @@ def write_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
+        input_ids = batch["qa_input_ids"].to(torch_device)
+        attention_mask = batch["qa_attention_mask"].to(torch_device)
 
         preds = model(input_ids, attention_mask)
         all_preds.extend(torch.argmax(preds, dim=1).tolist())

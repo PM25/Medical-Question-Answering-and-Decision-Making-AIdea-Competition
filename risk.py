@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup
 
-from dataset import risk_dataset
+from dataset import all_dataset
 from model import BertClassifier
 from utils.init import set_random_seed, get_device
 
@@ -43,9 +43,9 @@ def train(model, train_loader, val_loader=None):
         avg_loss, total_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["input_ids"].to(torch_device)
-            attention_mask = batch["attention_mask"].to(torch_device)
-            answer = batch["answer"].float().to(torch_device)
+            input_ids = batch["risk_input_ids"].to(torch_device)
+            attention_mask = batch["risk_attention_mask"].to(torch_device)
+            answer = batch["risk_answer"].float().to(torch_device)
 
             optimizer.zero_grad()
             pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
@@ -84,9 +84,9 @@ def evaluate(model, val_loader):
     val_loss = []
     all_preds, truth = [], []
     for step, batch in enumerate(val_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-        answer = batch["answer"].float().to(torch_device)
+        input_ids = batch["risk_input_ids"].to(torch_device)
+        attention_mask = batch["risk_attention_mask"].to(torch_device)
+        answer = batch["risk_answer"].float().to(torch_device)
 
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
         preds[preds > 0.5] = 1
@@ -101,7 +101,7 @@ def evaluate(model, val_loader):
 
 
 if __name__ == "__main__":
-    dataset = risk_dataset(configs["qa_data"], configs["risk_data"])
+    dataset = all_dataset(configs["qa_data"], configs["risk_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
