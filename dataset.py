@@ -2,8 +2,8 @@ import re
 import csv
 import json
 import yaml
-import unicodedata
 import numpy as np
+from unicodedata import normalize
 from transformers import BertTokenizer
 
 import torch
@@ -55,10 +55,10 @@ def preprocess(qa_file: str, risk_file: str):
         for i, line in enumerate(csv.reader(f_Risk)):
             if i == 0:
                 continue
-            text = unicodedata.normalize("NFKC", line[2])
+            text = normalize("NFKC", line[2])
             text = text.replace(" ", "")
             article.append(split_sent(text))
-            answer = unicodedata.normalize("NFKC", line[3])
+            answer = normalize("NFKC", line[3])
             if answer.isdigit():
                 risk.append(eval(answer))
             else:
@@ -74,23 +74,49 @@ def preprocess(qa_file: str, risk_file: str):
             temp = []
             answer = ""
             for choice in question["choices"]:
-                text = list(unicodedata.normalize("NFKC", choice["text"]))
+                text = list(normalize("NFKC", choice["text"]))
                 if "answer" not in data:
                     temp.append([text, -1])
-                elif unicodedata.normalize(
-                    "NFKC", choice["label"]
-                ) in unicodedata.normalize("NFKC", data["answer"]):
+                elif normalize("NFKC", choice["label"]) in normalize(
+                    "NFKC", data["answer"]
+                ):
                     temp.append([text, 1])
                     answer = data["answer"]
                 else:
                     temp.append([text, 0])
-            question_text = list(unicodedata.normalize("NFKC", question["stem"]))
+            question_text = list(normalize("NFKC", question["stem"]))
             if data["article_id"] != article_id:
                 qa.append([])
                 article_id = data["article_id"]
             qa[-1].append([data["article_id"], question_text, temp])
 
     return article, risk, qa
+
+
+def risk_preprocess(risk_file: str):
+    with open(risk_file, "r", encoding="utf-8") as f_Risk:
+        data = []
+
+        # One smaple of Article
+        # [[Sent_1], [Sent_2], ..., [Sent_n]]
+        for i, line in enumerate(csv.reader(f_Risk)):
+            if i == 0:
+                continue
+            article_id = eval(line[1])
+            article = normalize("NFKC", line[2])
+            article = article.replace(" ", "")
+            label = normalize("NFKC", line[3])
+            label = eval(label) if label.isdigit() else -1
+
+            data.append(
+                {
+                    "article_id": article_id,
+                    "article": article,
+                    "label": label,
+                }
+            )
+
+    return data
 
 
 class all_dataset(Dataset):
@@ -211,6 +237,54 @@ class all_dataset(Dataset):
             "input_ids": tokenize_data["input_ids"].flatten(),
             "attention_mask": tokenize_data["attention_mask"].flatten(),
             "answer": torch.tensor(risk),
+        }
+
+        return out_datum
+
+
+class risk_dataset(Dataset):
+    def __init__(
+        self,
+        risk_file: str,
+        max_doc_len: int = configs["max_document_len"],
+    ):
+        super().__init__()
+        self.max_doc_len = max_doc_len
+        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+
+        risk_data = risk_preprocess(risk_file)
+
+        self.data = []
+        for risk_datum in risk_data:
+            article_id = risk_datum["article_id"]
+            article = risk_datum["article"]
+            label = risk_datum["label"]
+
+            processed_datum = self.process_risk(article, label)
+            processed_datum["article_id"] = article_id
+            self.data.append(processed_datum)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx: int):
+        return self.data[idx]
+
+    def process_risk(self, raw_doc, label):
+        tokenize_data = self.tokenizer(
+            raw_doc,
+            padding="max_length",
+            truncation=True,
+            add_special_tokens=True,
+            max_length=self.max_doc_len,
+            return_tensors="pt",
+        )
+
+        out_datum = {
+            "document": raw_doc,
+            "input_ids": tokenize_data["input_ids"].flatten(),
+            "attention_mask": tokenize_data["attention_mask"].flatten(),
+            "label": torch.tensor(label),
         }
 
         return out_datum

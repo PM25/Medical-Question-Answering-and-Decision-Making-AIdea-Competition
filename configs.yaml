@@ -6,6 +6,9 @@ dev_qa_data: data/Develop_QA.json
 dev_risk_data: data/Develop_risk_classification.csv
 model_path: saved_model/_qa
 
+# device
+device_id: 1 # cpu: -1, gpu: >= 0
+
 # train
 seed: 1009
 epochs: 50

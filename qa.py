@@ -18,7 +18,7 @@ with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
 
 set_random_seed(configs["seed"])
-torch_device = get_device()
+torch_device = get_device(configs["device_id"])
 torch.cuda.empty_cache()
 
 

@@ -1,3 +1,4 @@
+import csv
 import yaml
 import numpy as np
 from tqdm import tqdm
@@ -11,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup
 
-from dataset import all_dataset
+from dataset import risk_dataset
 from model import BertClassifier
 from utils.init import set_random_seed, get_device
 
@@ -19,7 +20,7 @@ with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
 
 set_random_seed(configs["seed"])
-torch_device = get_device()
+torch_device = get_device(configs["device_id"])
 torch.cuda.empty_cache()
 
 
@@ -43,9 +44,9 @@ def train(model, train_loader, val_loader=None):
         avg_loss, total_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["risk_input_ids"].to(torch_device)
-            attention_mask = batch["risk_attention_mask"].to(torch_device)
-            answer = batch["risk_answer"].float().to(torch_device)
+            input_ids = batch["input_ids"].to(torch_device)
+            attention_mask = batch["attention_mask"].to(torch_device)
+            answer = batch["label"].float().to(torch_device)
 
             optimizer.zero_grad()
             pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
@@ -84,13 +85,13 @@ def evaluate(model, val_loader):
     val_loss = []
     all_preds, truth = [], []
     for step, batch in enumerate(val_loader):
-        input_ids = batch["risk_input_ids"].to(torch_device)
-        attention_mask = batch["risk_attention_mask"].to(torch_device)
-        answer = batch["risk_answer"].float().to(torch_device)
+        input_ids = batch["input_ids"].to(torch_device)
+        attention_mask = batch["attention_mask"].to(torch_device)
+        answer = batch["label"].float().to(torch_device)
 
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
-        preds[preds > 0.5] = 1
-        preds[preds <= 0.5] = 0
+        # preds[preds > 0.5] = 1
+        # preds[preds <= 0.5] = 0
         all_preds.extend(preds.tolist())
         truth.extend(answer.tolist())
         val_loss.append(loss.item())
@@ -106,20 +107,26 @@ def write_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        doc_ids = batch["document_id"]
-        input_ids = batch["risk_input_ids"].to(torch_device)
-        attention_mask = batch["risk_attention_mask"].to(torch_device)
+        article_ids = batch["article_id"]
+        input_ids = batch["input_ids"].to(torch_device)
+        attention_mask = batch["attention_mask"].to(torch_device)
 
         preds = model(input_ids, attention_mask)
-        preds[preds > 0.5] = 1
-        preds[preds <= 0.5] = 0
-        all_preds.extend(list(zip(doc_ids.tolist(), preds.tolist())))
+        # preds[preds > 0.5] = 1
+        # preds[preds <= 0.5] = 0
+        all_preds.extend(list(zip(article_ids.tolist(), preds.tolist())))
 
-    return all_preds
+    Path("output").mkdir(parents=True, exist_ok=True)
+    with open("output/risk.csv", "w") as f:
+        csvwriter = csv.writer(f, delimiter=",")
+        csvwriter.writerow(["article_id", "probability"])
+        for article_id, prob in all_preds:
+            csvwriter.writerow([article_id, prob])
+    print("*Successfully saved prediction to output/risk.csv")
 
 
 if __name__ == "__main__":
-    dataset = all_dataset(configs["qa_data"], configs["risk_data"])
+    dataset = risk_dataset(configs["risk_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
@@ -137,9 +144,8 @@ if __name__ == "__main__":
         BertClassifier(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
     )
 
-    test_dataset = all_dataset(configs["dev_qa_data"], configs["dev_risk_data"])
+    test_dataset = risk_dataset(configs["dev_risk_data"])
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4
     )
-    all_preds = write_preds(risk_model, test_loader)
-    print(len(all_preds), all_preds)
+    write_preds(risk_model, test_loader)
