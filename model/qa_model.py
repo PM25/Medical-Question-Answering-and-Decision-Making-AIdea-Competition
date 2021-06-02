@@ -59,10 +59,16 @@ class QA_Model(nn.Module):
 
     def pred_and_loss(self, input_ids, attention_mask, answer):
         outputs = self(input_ids, attention_mask)
-        pred = torch.argmax(outputs, dim=1)
+        preds = torch.argmax(outputs, dim=1)
         answer = answer.reshape(-1)
-        return pred, F.binary_cross_entropy(outputs.reshape(-1), answer)
+        return preds, F.binary_cross_entropy(outputs.reshape(-1), answer)
         # outputs = self(input_ids, attention_mask)
         # pred = torch.argmax(outputs, dim=1)
         # answer = torch.argmax(answer, dim=1)
         # return pred, F.cross_entropy(outputs, answer)
+
+    def pred_label(self, input_ids, attention_mask, labels):
+        outputs = self(input_ids, attention_mask)
+        preds = torch.argmax(outputs, dim=1)
+        _pred_label = [label[pred] for pred, label in zip(preds, zip(*labels))]
+        return _pred_label

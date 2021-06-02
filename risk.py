@@ -16,6 +16,7 @@ from dataset import risk_dataset
 from model import BertClassifier
 from utils.init import set_random_seed, get_device
 
+
 with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
 
@@ -97,11 +98,12 @@ def evaluate(model, val_loader):
         val_loss.append(loss.item())
 
     val_loss = np.mean(val_loss)
+    score = roc_auc_score(truth, all_preds) if len(truth) != 0 else np.nan
 
-    return val_loss, roc_auc_score(truth, all_preds)
+    return val_loss, score
 
 
-def write_preds(model, data_loader):
+def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)
 
@@ -122,6 +124,8 @@ def write_preds(model, data_loader):
         csvwriter.writerow(["article_id", "probability"])
         for article_id, prob in all_preds:
             csvwriter.writerow([article_id, prob])
+    with open('output/risk_configs.yml', 'w') as yaml_file:
+        yaml.dump(configs, yaml_file, default_flow_style=False)
     print("*Successfully saved prediction to output/risk.csv")
 
 
@@ -148,4 +152,4 @@ if __name__ == "__main__":
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4
     )
-    write_preds(risk_model, test_loader)
+    save_preds(risk_model, test_loader)

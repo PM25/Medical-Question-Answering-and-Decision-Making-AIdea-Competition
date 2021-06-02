@@ -1,3 +1,4 @@
+import csv
 import yaml
 import numpy as np
 from tqdm import tqdm
@@ -10,9 +11,10 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup
 
-from dataset import all_dataset
+from dataset import qa_dataset
 from model import QA_Model
 from utils.init import set_random_seed, get_device
+
 
 with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
@@ -42,9 +44,9 @@ def train(model, train_loader, val_loader=None):
         avg_loss, train_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["qa_input_ids"].to(torch_device)
-            attention_mask = batch["qa_attention_mask"].to(torch_device)
-            answer = batch["qa_answer"].float().to(torch_device)
+            input_ids = batch["input_ids"].to(torch_device)
+            attention_mask = batch["attention_mask"].to(torch_device)
+            answer = batch["answer"].float().to(torch_device)
 
             optimizer.zero_grad()
             pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
@@ -82,9 +84,9 @@ def evaluate(model, val_loader):
 
     val_acc, val_loss = [], []
     for step, batch in enumerate(val_loader):
-        input_ids = batch["qa_input_ids"].to(torch_device)
-        attention_mask = batch["qa_attention_mask"].to(torch_device)
-        answer = batch["qa_answer"].float().to(torch_device)
+        input_ids = batch["input_ids"].to(torch_device)
+        attention_mask = batch["attention_mask"].to(torch_device)
+        answer = batch["answer"].float().to(torch_device)
 
         preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
         labels = torch.argmax(answer, dim=1)
@@ -97,23 +99,33 @@ def evaluate(model, val_loader):
     return val_loss, val_acc
 
 
-def write_preds(model, data_loader):
+def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        input_ids = batch["qa_input_ids"].to(torch_device)
-        attention_mask = batch["qa_attention_mask"].to(torch_device)
+        article_ids = batch["article_id"]
+        labels = batch["label"]
+        input_ids = batch["input_ids"].to(torch_device)
+        attention_mask = batch["attention_mask"].to(torch_device)
 
-        preds = model(input_ids, attention_mask)
-        all_preds.extend(torch.argmax(preds, dim=1).tolist())
+        preds = model.pred_label(input_ids, attention_mask, labels)
+        all_preds.extend(list(zip(article_ids.tolist(), preds)))
 
-    return all_preds
+    Path("output").mkdir(parents=True, exist_ok=True)
+    with open("output/qa.csv", "w") as f:
+        csvwriter = csv.writer(f, delimiter=",")
+        csvwriter.writerow(["id", "answer"])
+        for article_id, pred in all_preds:
+            csvwriter.writerow([article_id, pred])
+    with open("output/qa_configs.yml", "w") as yaml_file:
+        yaml.dump(configs, yaml_file, default_flow_style=False)
+    print("*Successfully saved prediction to output/qa.csv")
 
 
 if __name__ == "__main__":
-    dataset = all_dataset(configs["qa_data"], configs["risk_data"])
+    dataset = qa_dataset(configs["qa_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
@@ -131,8 +143,8 @@ if __name__ == "__main__":
         QA_Model(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
     )
 
-    test_dataset = all_dataset(configs["dev_qa_data"], configs["dev_risk_data"])
+    test_dataset = qa_dataset(configs["dev_qa_data"])
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4
     )
-    print(write_preds(qa_model, test_loader))
+    save_preds(qa_model, test_loader)

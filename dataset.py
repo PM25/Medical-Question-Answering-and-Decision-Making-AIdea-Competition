@@ -93,6 +93,43 @@ def preprocess(qa_file: str, risk_file: str):
     return article, risk, qa
 
 
+def qa_preprocess(qa_file: str):
+    with open(qa_file, "r", encoding="utf-8") as f_QA:
+        # One sample of QA
+        # [Question, [[Choice_1, Answer_1], [Choice_2, Answer_2], [Choice_3, Answer_3]]]
+        data = []
+        for datum in json.load(f_QA):
+            article_id = datum["article_id"]
+            article = datum["text"]
+            question = datum["question"]
+            question_text = normalize("NFKC", question["stem"])
+
+            choices = []
+            answer = ""
+            for choice in question["choices"]:
+                text = normalize("NFKC", choice["text"])
+                label = normalize("NFKC", choice["label"])
+
+                if "answer" not in datum:
+                    choices.append([text, label, -1])
+                elif label in normalize("NFKC", datum["answer"]):
+                    choices.append([text, label, 1])
+                    answer = datum["answer"]
+                else:
+                    choices.append([text, label, 0])
+
+            data.append(
+                {
+                    "article_id": article_id,
+                    "article": article,
+                    "question": question_text,
+                    "choices": choices,
+                }
+            )
+
+    return data
+
+
 def risk_preprocess(risk_file: str):
     with open(risk_file, "r", encoding="utf-8") as f_Risk:
         data = []
@@ -242,6 +279,91 @@ class all_dataset(Dataset):
         return out_datum
 
 
+class qa_dataset(Dataset):
+    def __init__(
+        self,
+        qa_file: str,
+        max_doc_len: int = configs["max_document_len"],
+        max_q_len: int = configs["max_question_len"],
+        max_c_len: int = configs["max_choice_len"],
+    ):
+        super().__init__()
+        self.max_doc_len = max_doc_len
+        self.max_q_len = max_q_len
+        self.max_c_len = max_c_len
+        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+
+        qa_data = qa_preprocess(qa_file)
+
+        self.data = []
+        for idx, qa_datum in enumerate(qa_data):
+            processed_datum = self.process_qa(
+                qa_datum["article"], qa_datum["question"], qa_datum["choices"]
+            )
+            processed_datum["article_id"] = qa_datum["article_id"]
+            processed_datum["article"] = qa_datum["article"]
+            processed_datum["question"] = qa_datum["question"]
+            self.data.append(processed_datum)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx: int):
+        return self.data[idx]
+
+    def process_qa(self, raw_doc, raw_question, raw_choices):
+        out_datum = {
+            "choices": [],
+            "label": [],
+            "input_ids": [],
+            "attention_mask": [],
+            "answer": [],
+        }
+
+        for idx, choice_ans in enumerate(raw_choices):
+            raw_choice = "".join(choice_ans[0])
+            label = choice_ans[1]
+            answer = choice_ans[2]
+
+            max_input_len = self.max_doc_len + self.max_q_len + self.max_c_len
+            len_d, len_q, len_c = len(raw_doc), len(raw_question), len(raw_choice)
+            if len_d + len_q + len_c > max_input_len:
+                new_doc_len = max(max_input_len - len_q - len_c, self.max_doc_len)
+                trunc_document = raw_doc[:new_doc_len]
+                new_q_len = max(max_input_len - new_doc_len - len_c, self.max_q_len)
+                trunc_question = raw_question[:new_q_len]
+                choice_len = max(
+                    max_input_len - new_doc_len - new_q_len, self.max_c_len
+                )
+                trunc_choice = raw_choice[:choice_len]
+            else:
+                trunc_document = raw_doc
+                trunc_question = raw_question
+                trunc_choice = raw_choice
+
+            tokenize_data = self.tokenizer(
+                trunc_document,
+                trunc_question + trunc_choice,
+                padding="max_length",
+                truncation=True,
+                add_special_tokens=True,
+                max_length=max_input_len,
+                return_tensors="pt",
+            )
+
+            out_datum["choices"].append(trunc_choice)
+            out_datum["label"].append(label)
+            out_datum["input_ids"].append(tokenize_data["input_ids"])
+            out_datum["attention_mask"].append(tokenize_data["attention_mask"])
+            out_datum["answer"].append(answer)
+
+        out_datum["input_ids"] = torch.cat(out_datum["input_ids"])
+        out_datum["attention_mask"] = torch.cat(out_datum["attention_mask"])
+        out_datum["answer"] = torch.tensor(out_datum["answer"])
+
+        return out_datum
+
+
 class risk_dataset(Dataset):
     def __init__(
         self,
@@ -270,9 +392,9 @@ class risk_dataset(Dataset):
     def __getitem__(self, idx: int):
         return self.data[idx]
 
-    def process_risk(self, raw_doc, label):
+    def process_risk(self, raw_article, label):
         tokenize_data = self.tokenizer(
-            raw_doc,
+            raw_article,
             padding="max_length",
             truncation=True,
             add_special_tokens=True,
@@ -281,7 +403,7 @@ class risk_dataset(Dataset):
         )
 
         out_datum = {
-            "document": raw_doc,
+            "article": raw_article,
             "input_ids": tokenize_data["input_ids"].flatten(),
             "attention_mask": tokenize_data["attention_mask"].flatten(),
             "label": torch.tensor(label),
