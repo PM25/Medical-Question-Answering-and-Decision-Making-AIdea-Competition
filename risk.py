@@ -3,7 +3,6 @@ import yaml
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-from datetime import datetime
 from sklearn.metrics import roc_auc_score
 
 import torch
@@ -14,7 +13,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from dataset import risk_dataset
 from model import BertClassifier
-from utils.init import set_random_seed, get_device
+from utils.setting import set_random_seed, get_device
 
 
 with open("configs.yaml", "r") as stream:
@@ -119,12 +118,12 @@ def save_preds(model, data_loader):
         all_preds.extend(list(zip(article_ids.tolist(), preds.tolist())))
 
     Path("output").mkdir(parents=True, exist_ok=True)
-    with open("output/risk.csv", "w") as f:
+    with open("output/decision.csv", "w") as f:
         csvwriter = csv.writer(f, delimiter=",")
         csvwriter.writerow(["article_id", "probability"])
         for article_id, prob in all_preds:
             csvwriter.writerow([article_id, prob])
-    with open('output/risk_configs.yml', 'w') as yaml_file:
+    with open("output/decision_configs.yml", "w") as yaml_file:
         yaml.dump(configs, yaml_file, default_flow_style=False)
     print("*Successfully saved prediction to output/risk.csv")
 

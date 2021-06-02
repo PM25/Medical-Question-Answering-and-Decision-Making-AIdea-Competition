@@ -3,7 +3,6 @@ import yaml
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-from datetime import datetime
 
 import torch
 from torch.optim import AdamW
@@ -13,7 +12,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from dataset import qa_dataset
 from model import QA_Model
-from utils.init import set_random_seed, get_device
+from utils.setting import set_random_seed, get_device
 
 
 with open("configs.yaml", "r") as stream:
@@ -105,20 +104,20 @@ def save_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        article_ids = batch["article_id"]
+        _id = batch["id"]
         labels = batch["label"]
         input_ids = batch["input_ids"].to(torch_device)
         attention_mask = batch["attention_mask"].to(torch_device)
 
         preds = model.pred_label(input_ids, attention_mask, labels)
-        all_preds.extend(list(zip(article_ids.tolist(), preds)))
+        all_preds.extend(list(zip(_id.tolist(), preds)))
 
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/qa.csv", "w") as f:
         csvwriter = csv.writer(f, delimiter=",")
         csvwriter.writerow(["id", "answer"])
-        for article_id, pred in all_preds:
-            csvwriter.writerow([article_id, pred])
+        for _id, pred in all_preds:
+            csvwriter.writerow([_id, pred])
     with open("output/qa_configs.yml", "w") as yaml_file:
         yaml.dump(configs, yaml_file, default_flow_style=False)
     print("*Successfully saved prediction to output/qa.csv")
