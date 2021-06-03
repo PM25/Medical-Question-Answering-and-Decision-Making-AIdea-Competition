@@ -28,16 +28,18 @@ class BertClassifier(nn.Module):
             for param in self.bert.parameters():
                 param.requires_grad = False
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, attention_mask, answer=None):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state_cls = outputs[0][:, 0, :]
         logits = self.classifier(last_hidden_state_cls)
-        return torch.sigmoid(logits).flatten()
+        outputs = torch.sigmoid(logits).flatten()
 
-    def pred_and_loss(self, input_ids, attention_mask, answer):
-        outputs = self(input_ids, attention_mask)
-        return outputs, F.binary_cross_entropy(outputs, answer)
-        # outputs = self(input_ids, attention_mask)
-        # pred = torch.argmax(outputs, dim=1)
-        # answer = torch.argmax(answer, dim=1)
-        # return pred, F.cross_entropy(outputs, answer)
+        if answer is not None:
+            loss = F.binary_cross_entropy(outputs, answer)
+            # outputs = self(input_ids, attention_mask)
+            # pred = torch.argmax(outputs, dim=1)
+            # answer = torch.argmax(answer, dim=1)
+            # return pred, F.cross_entropy(outputs, answer)
+            return outputs, loss
+
+        return outputs

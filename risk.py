@@ -38,7 +38,7 @@ def train(model, train_loader, val_loader=None):
         num_training_steps=len(train_loader) * configs["epochs"],
     )
 
-    writer = SummaryWriter()
+    writer = SummaryWriter("runs/risk")
 
     for epoch in range(configs["epochs"]):
         avg_loss, total_loss = 0, 0
@@ -136,6 +136,8 @@ if __name__ == "__main__":
 
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
+    
+    
     train_loader = DataLoader(
         train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=4
     )

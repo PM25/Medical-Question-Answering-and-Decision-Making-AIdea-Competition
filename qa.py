@@ -48,7 +48,7 @@ def train(model, train_loader, val_loader=None):
             answer = batch["answer"].float().to(torch_device)
 
             optimizer.zero_grad()
-            pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
+            preds, loss = model(input_ids, attention_mask, answer)
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -87,7 +87,7 @@ def evaluate(model, val_loader):
         attention_mask = batch["attention_mask"].to(torch_device)
         answer = batch["answer"].float().to(torch_device)
 
-        preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
+        preds, loss = model(input_ids, attention_mask, answer)
         labels = torch.argmax(answer, dim=1)
         val_acc.append((preds == labels).cpu().numpy().mean())
         val_loss.append(loss.item())
