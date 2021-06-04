@@ -1,16 +1,12 @@
-import yaml
 import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformers import BertModel, BertForSequenceClassification
-
-with open("configs.yaml", "r") as stream:
-    configs = yaml.safe_load(stream)
+from transformers import BertModel
 
 
 class BertClassifier(nn.Module):
-    def __init__(self, freeze_bert=True):
+    def __init__(self, configs):
         super().__init__()
         self.bert = BertModel.from_pretrained("bert-base-chinese")
         D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
@@ -24,7 +20,7 @@ class BertClassifier(nn.Module):
         hidden_layers.append(nn.Linear(hidden_dim, D_out))
         self.classifier = nn.Sequential(*hidden_layers)
 
-        if freeze_bert:
+        if configs["freeze_bert"]:
             for param in self.bert.parameters():
                 param.requires_grad = False
 
@@ -41,9 +37,9 @@ class BertClassifier(nn.Module):
 
 
 class QA_Model(nn.Module):
-    def __init__(self, freeze_bert=True):
+    def __init__(self, configs):
         super().__init__()
-        self.bert_classifier = BertClassifier(freeze_bert)
+        self.bert_classifier = BertClassifier(configs)
 
     def forward(self, input_ids, attention_mask, answer=None):
         # input_ids Shape: [Batch_Size, num_choices, input_length]
@@ -65,8 +61,7 @@ class QA_Model(nn.Module):
         return preds
 
     def pred_label(self, input_ids, attention_mask, labels):
-        outputs = self(input_ids, attention_mask)
-        preds = torch.argmax(outputs, dim=1)
+        preds = self(input_ids, attention_mask)
         _pred_label = [label[pred] for pred, label in zip(preds, zip(*labels))]
 
         return _pred_label

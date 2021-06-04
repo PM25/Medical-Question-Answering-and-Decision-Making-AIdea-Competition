@@ -49,7 +49,7 @@ def train(model, train_loader, val_loader=None):
             answer = batch["label"].float().to(torch_device)
 
             optimizer.zero_grad()
-            pred, loss = model.pred_and_loss(input_ids, attention_mask, answer)
+            preds, loss = model(input_ids, attention_mask, answer)
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -89,7 +89,7 @@ def evaluate(model, val_loader):
         attention_mask = batch["attention_mask"].to(torch_device)
         answer = batch["label"].float().to(torch_device)
 
-        preds, loss = model.pred_and_loss(input_ids, attention_mask, answer)
+        preds, loss = model(input_ids, attention_mask, answer)
         # preds[preds > 0.5] = 1
         # preds[preds <= 0.5] = 0
         all_preds.extend(preds.tolist())
@@ -129,15 +129,13 @@ def save_preds(model, data_loader):
 
 
 if __name__ == "__main__":
-    dataset = risk_dataset(configs["risk_data"])
+    dataset = risk_dataset(configs, configs["risk_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
 
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    
-    
     train_loader = DataLoader(
         train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=4
     )
@@ -145,11 +143,9 @@ if __name__ == "__main__":
         val_dataset, batch_size=configs["batch_size"], num_workers=4
     )
 
-    risk_model = train(
-        BertClassifier(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
-    )
+    risk_model = train(BertClassifier(configs), train_loader, val_loader)
 
-    test_dataset = risk_dataset(configs["dev_risk_data"])
+    test_dataset = risk_dataset(configs, configs["dev_risk_data"])
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4
     )

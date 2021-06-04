@@ -124,7 +124,7 @@ def save_preds(model, data_loader):
 
 
 if __name__ == "__main__":
-    dataset = qa_dataset(configs["qa_data"])
+    dataset = qa_dataset(configs, configs["qa_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
@@ -138,11 +138,9 @@ if __name__ == "__main__":
         val_dataset, batch_size=configs["batch_size"], num_workers=4
     )
 
-    qa_model = train(
-        QA_Model(freeze_bert=configs["freeze_bert"]), train_loader, val_loader
-    )
+    qa_model = train(QA_Model(configs), train_loader, val_loader)
 
-    test_dataset = qa_dataset(configs["dev_qa_data"])
+    test_dataset = qa_dataset(configs, configs["dev_qa_data"])
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4
     )

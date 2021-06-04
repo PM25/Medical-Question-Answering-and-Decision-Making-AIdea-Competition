@@ -1,25 +1,12 @@
 import re
 import csv
 import json
-import yaml
 import numpy as np
 from unicodedata import normalize
 from transformers import BertTokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-
-with open("configs.yaml", "r") as stream:
-    configs = yaml.safe_load(stream)
-
-
-"""
-Here we will do preprocessing on the dataset.
-Something needs to be done here :
-1. Read the file in.
-2. Separate the article, question, answer.
-3. Used PAD to round each sentence into the same length
-"""
 
 
 def split_sent(sentence: str):
@@ -107,17 +94,11 @@ def risk_preprocess(risk_file: str):
 
 
 class qa_dataset(Dataset):
-    def __init__(
-        self,
-        qa_file: str,
-        max_doc_len: int = configs["max_document_len"],
-        max_q_len: int = configs["max_question_len"],
-        max_c_len: int = configs["max_choice_len"],
-    ):
+    def __init__(self, configs, qa_file):
         super().__init__()
-        self.max_doc_len = max_doc_len
-        self.max_q_len = max_q_len
-        self.max_c_len = max_c_len
+        self.max_doc_len = configs["max_document_len"]
+        self.max_q_len = configs["max_question_len"]
+        self.max_c_len = configs["max_choice_len"]
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
         qa_data = qa_preprocess(qa_file)
@@ -192,13 +173,9 @@ class qa_dataset(Dataset):
 
 
 class risk_dataset(Dataset):
-    def __init__(
-        self,
-        risk_file: str,
-        max_doc_len: int = configs["max_document_len"],
-    ):
+    def __init__(self, configs, risk_file):
         super().__init__()
-        self.max_doc_len = max_doc_len
+        self.max_doc_len = configs["max_document_len"]
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
         risk_data = risk_preprocess(risk_file)

@@ -1,16 +1,12 @@
-import yaml
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 from transformers import BertModel
 
-with open("configs.yaml", "r") as stream:
-    configs = yaml.safe_load(stream)
-
 
 class BertClassifier(nn.Module):
-    def __init__(self, freeze_bert=True):
+    def __init__(self, configs):
         super().__init__()
         self.bert = BertModel.from_pretrained("bert-base-chinese")
         D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
@@ -24,7 +20,7 @@ class BertClassifier(nn.Module):
         hidden_layers.append(nn.Linear(hidden_dim, D_out))
         self.classifier = nn.Sequential(*hidden_layers)
 
-        if freeze_bert:
+        if configs["freeze_bert"]:
             for param in self.bert.parameters():
                 param.requires_grad = False
 
