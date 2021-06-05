@@ -33,7 +33,9 @@ def grid_search(configs, grid_config, model, train_loader, val_loader):
 
         Path("history").mkdir(parents=True, exist_ok=True)
         _id = datetime.datetime.now().strftime("%d%H%M%S")
-        with open(f"history/risk_val_acc_{val_acc:.3f}_id_{_id}.yml", "w") as yaml_file:
+        with open(
+            f"history/risk_val_acc_{val_acc:.3f}_id_{_id}.yaml", "w"
+        ) as yaml_file:
             yaml.dump(configs, yaml_file, default_flow_style=False)
 
         return val_acc, configs
