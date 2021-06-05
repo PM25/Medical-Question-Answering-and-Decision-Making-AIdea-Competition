@@ -11,6 +11,7 @@ log_step: 1
 max_choice_len: 32
 max_document_len: 430
 max_question_len: 50
+model: Bert
 n_cls_layers: 3
 qa_data: data/Train_qa_ans.json
 risk_data: data/Train_risk_classification_ans.csv

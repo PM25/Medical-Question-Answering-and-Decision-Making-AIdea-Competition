@@ -19,6 +19,7 @@ val_size: 0
 log_step: 1
 
 # model
+model: Bert
 hidden_dim: 300
 n_cls_layers: 3
 dropout: 0.25
