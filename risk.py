@@ -24,7 +24,7 @@ torch_device = get_device(configs["device_id"])
 torch.cuda.empty_cache()
 
 
-def train(model, train_loader, val_loader=None):
+def train(model, train_loader, val_loader=None, configs=configs):
     model.train()
     model.to(torch_device)
 
@@ -38,7 +38,7 @@ def train(model, train_loader, val_loader=None):
         num_training_steps=len(train_loader) * configs["epochs"],
     )
 
-    writer = SummaryWriter("runs/risk")
+    writer = SummaryWriter()
 
     for epoch in range(configs["epochs"]):
         avg_loss, total_loss = 0, 0
@@ -63,9 +63,9 @@ def train(model, train_loader, val_loader=None):
                 tqdm_train_loader.set_description(
                     f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f}",
                 )
-                writer.add_scalar("Accuracy/valalidation", val_acc, epoch)
-                writer.add_scalar("Loss/validation", val_loss, epoch)
-                writer.add_scalar("Loss/train", train_loss, epoch)
+                writer.add_scalar("Risk_Accuracy/valalidation", val_acc, epoch)
+                writer.add_scalar("Risk_Loss/validation", val_loss, epoch)
+                writer.add_scalar("Risk_Loss/train", train_loss, epoch)
 
             elif step % configs["log_step"] == 0:
                 avg_loss /= configs["log_step"]
