@@ -10,7 +10,7 @@ device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
 seed: 1009
-epochs: 50
+epochs: 15
 batch_size: 16
 learning_rate: 0.0001
 warmup_steps: 20
@@ -19,9 +19,10 @@ val_size: 0.1
 log_step: 1
 
 # model
+model: Roberta
 hidden_dim: 300
 n_cls_layers: 3
-dropout: 0.25
+dropout: 0.2
 freeze_bert: true
 
 # data processing

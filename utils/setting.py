@@ -16,7 +16,7 @@ def get_device(_id=0):
     assert torch.cuda.device_count() > _id
     print("===== [Device Information] =====")
 
-    if torch.cuda.is_available():
+    if _id > 0 and torch.cuda.is_available():
         torch.cuda.set_device(_id)
         _id = torch.cuda.current_device()
         device = torch.device(f"cuda:{_id}")

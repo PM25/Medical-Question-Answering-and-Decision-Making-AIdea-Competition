@@ -8,7 +8,7 @@ import torch
 from torch.optim import AdamW
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, logging
 
 from dataset import qa_dataset
 from model import QA_Model
@@ -20,6 +20,7 @@ with open("configs.yaml", "r") as stream:
 set_random_seed(configs["seed"])
 torch_device = get_device(configs["device_id"])
 torch.cuda.empty_cache()
+logging.set_verbosity(logging.ERROR)
 
 
 def train(model, train_loader, val_loader=None, configs=configs):

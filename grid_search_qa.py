@@ -42,7 +42,7 @@ def grid_search(configs, grid_config, model, train_loader, val_loader):
         for value in _range:
             configs[hypeparam] = value
             acc, configs = grid_search(
-                configs, grid_config, model, train_loader, val_loader
+                configs.copy(), grid_config.copy(), model, train_loader, val_loader
             )
             if acc < best_acc:
                 best_acc = acc
@@ -83,13 +83,14 @@ if __name__ == "__main__":
     )
 
     grid_seach_config = {
+        "model": ["Roberta"],
         "epochs": [1, 2, 3, 4],
         "batch_size": [1],
         "freeze_bert": [False],
         "learning_rate": [1e-3, 1e-4, 1e-5],
-        "warmup_steps": [0, 50, 100, 150, 200],
-        "n_cls_layers": [1, 3, 5],
-        "hidden_dim": [50, 100, 200, 300, 400, 500, 600],
+        "warmup_steps": [0, 50, 150, 300],
+        "n_cls_layers": [1, 3, 5, 7],
+        "hidden_dim": [50, 100, 200, 400, 700],
     }
 
     best_acc, best_configs = grid_search(

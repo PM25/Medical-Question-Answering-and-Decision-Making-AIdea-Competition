@@ -1,12 +1,15 @@
+import os
 import re
 import csv
 import json
 import numpy as np
 from unicodedata import normalize
-from transformers import BertTokenizer
+from transformers import AutoTokenizer, BertTokenizer, RobertaTokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 def split_sent(sentence: str):
@@ -70,7 +73,6 @@ def qa_preprocess(qa_file: str):
 def risk_preprocess(risk_file: str):
     with open(risk_file, "r", encoding="utf-8") as f_Risk:
         data = []
-
         # One smaple of Article
         # [[Sent_1], [Sent_2], ..., [Sent_n]]
         for i, line in enumerate(csv.reader(f_Risk)):
@@ -99,7 +101,12 @@ class qa_dataset(Dataset):
         self.max_doc_len = configs["max_document_len"]
         self.max_q_len = configs["max_question_len"]
         self.max_c_len = configs["max_choice_len"]
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.tokenizer = {
+            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
+            "Roberta": lambda: AutoTokenizer.from_pretrained(
+                "hfl/chinese-roberta-wwm-ext"
+            ),
+        }.get(configs["model"], None)()
 
         qa_data = qa_preprocess(qa_file)
 
@@ -176,7 +183,12 @@ class risk_dataset(Dataset):
     def __init__(self, configs, risk_file):
         super().__init__()
         self.max_doc_len = configs["max_document_len"]
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.tokenizer = {
+            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
+            "Roberta": lambda: AutoTokenizer.from_pretrained(
+                "hfl/chinese-roberta-wwm-ext"
+            ),
+        }.get(configs["model"], None)()
 
         risk_data = risk_preprocess(risk_file)
 

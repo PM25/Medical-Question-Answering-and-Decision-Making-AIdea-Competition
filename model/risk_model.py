@@ -2,13 +2,16 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformers import BertModel
+from transformers import BertModel, AutoModel
 
 
 class BertClassifier(nn.Module):
     def __init__(self, configs):
         super().__init__()
-        self.bert = BertModel.from_pretrained("bert-base-chinese")
+        self.bert = {
+            "Bert": lambda: BertModel.from_pretrained("bert-base-chinese"),
+            "Roberta": lambda: AutoModel.from_pretrained("hfl/chinese-roberta-wwm-ext"),
+        }.get(configs["model"], None)()
         D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
 
         hidden_layers = []

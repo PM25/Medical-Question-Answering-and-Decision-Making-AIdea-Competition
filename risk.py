@@ -9,12 +9,11 @@ import torch
 from torch.optim import AdamW
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, logging
 
 from dataset import risk_dataset
 from model import BertClassifier
 from utils.setting import set_random_seed, get_device
-
 
 with open("configs.yaml", "r") as stream:
     configs = yaml.safe_load(stream)
@@ -22,6 +21,7 @@ with open("configs.yaml", "r") as stream:
 set_random_seed(configs["seed"])
 torch_device = get_device(configs["device_id"])
 torch.cuda.empty_cache()
+logging.set_verbosity(logging.ERROR)
 
 
 def train(model, train_loader, val_loader=None, configs=configs):
@@ -137,16 +137,16 @@ if __name__ == "__main__":
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(
-        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=4
+        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=configs["batch_size"], num_workers=4
+        val_dataset, batch_size=configs["batch_size"], num_workers=1
     )
 
     risk_model = train(BertClassifier(configs), train_loader, val_loader)
 
     test_dataset = risk_dataset(configs, configs["dev_risk_data"])
     test_loader = DataLoader(
-        test_dataset, batch_size=configs["batch_size"], num_workers=4
+        test_dataset, batch_size=configs["batch_size"], num_workers=1
     )
     save_preds(risk_model, test_loader)
