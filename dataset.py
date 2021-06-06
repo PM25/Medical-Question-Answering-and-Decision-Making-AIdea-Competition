@@ -8,29 +8,30 @@ from transformers import AutoTokenizer, BertTokenizer, RobertaTokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+import opencc
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+roles = ["護", "醫", "民", "家", "個"]
 
 
 def split_sent(sentence: str):
     first_role_idx = re.search(":", sentence).end(0)
     out = [sentence[:first_role_idx]]
 
-    tmp = sentence[first_role_idx:]
-    while tmp:
-        res = re.search(r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:)", tmp)
+    remained = sentence[first_role_idx:]
+    while remained:
+        res = re.search(r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:)", remained)
         if res is None:
             break
 
         idx = res.start(0)
         idx_end = res.end(0)
-        out[-1] = list(out[-1] + tmp[:idx])
-        out.append(tmp[idx:idx_end])
-        tmp = tmp[idx_end:]
+        out[-1] = (roles.index(out[-1][0]), remained[:idx])
+        out.append(remained[idx:idx_end])
+        remained = remained[idx_end:]
 
-    out[-1] = list(out[-1] + tmp)
-
-    return out
+    out[-1] = (roles.index(out[-1][0]), remained[:idx])
+    return zip(*out)
 
 
 def qa_preprocess(qa_file: str):
@@ -182,13 +183,10 @@ class qa_dataset(Dataset):
 class risk_dataset(Dataset):
     def __init__(self, configs, risk_file):
         super().__init__()
-        self.max_doc_len = configs["max_document_len"]
-        self.tokenizer = {
-            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-            "Roberta": lambda: AutoTokenizer.from_pretrained(
-                "hfl/chinese-roberta-wwm-ext"
-            ),
-        }.get(configs["model"], None)()
+
+        chinese_convert = configs.get("chinese_convert")
+        if chinese_convert:
+            converter = opencc.OpenCC(chinese_convert)
 
         risk_data = risk_preprocess(risk_file)
 
@@ -197,9 +195,17 @@ class risk_dataset(Dataset):
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
             label = risk_datum["label"]
+            role, diag = split_sent(article)
 
-            processed_datum = self.process_risk(article, label)
-            processed_datum["article_id"] = article_id
+            if chinese_convert:
+                diag = [converter.convert(d) for d in diag]
+
+            processed_datum = {
+                "role": role,
+                "diag": diag,
+                "label": torch.tensor(label),
+                "id": article_id,
+            }
             self.data.append(processed_datum)
 
     def __len__(self):
@@ -207,22 +213,3 @@ class risk_dataset(Dataset):
 
     def __getitem__(self, idx: int):
         return self.data[idx]
-
-    def process_risk(self, raw_article, label):
-        tokenize_data = self.tokenizer(
-            raw_article,
-            padding="max_length",
-            truncation=True,
-            add_special_tokens=True,
-            max_length=self.max_doc_len,
-            return_tensors="pt",
-        )
-
-        out_datum = {
-            "article": raw_article,
-            "input_ids": tokenize_data["input_ids"].flatten(),
-            "attention_mask": tokenize_data["attention_mask"].flatten(),
-            "label": torch.tensor(label),
-        }
-
-        return out_datum
