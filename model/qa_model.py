@@ -9,7 +9,7 @@ class BertClassifier(nn.Module):
     def __init__(self, configs):
         super().__init__()
         self.bert = {
-            "Bert": lambda: BertModel.from_pretrained("bert-base-chinese"),
+            "Bert": lambda: BertModel.from_pretrained("ckiplab/bert-base-chinese"),
             "Roberta": lambda: AutoModel.from_pretrained("hfl/chinese-roberta-wwm-ext"),
         }.get(configs["model"], None)()
         D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
