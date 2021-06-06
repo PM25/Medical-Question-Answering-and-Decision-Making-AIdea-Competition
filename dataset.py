@@ -4,14 +4,21 @@ import csv
 import json
 import numpy as np
 from unicodedata import normalize
-from transformers import AutoTokenizer, BertTokenizer, RobertaTokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# spkr token
+# redundant sentence pruning
+# preprocessor
 
+# 感嘆詞拉掉
+# 比較有無標點符號
 
+# LEO:
+# HEAD訓練的過程寫好
+# 繁簡體差異確定
 def split_sent(sentence: str):
     first_role_idx = re.search(":", sentence).end(0)
     out = [sentence[:first_role_idx]]
@@ -29,8 +36,9 @@ def split_sent(sentence: str):
         tmp = tmp[idx_end:]
 
     out[-1] = list(out[-1] + tmp)
-
-    return out
+    diag = [''.join(s).split(':') for s in out]
+    artc = ''.join([s[1] for s in diag])
+    return artc, diag
 
 
 def qa_preprocess(qa_file: str):
@@ -66,7 +74,6 @@ def qa_preprocess(qa_file: str):
                     "choices": choices,
                 }
             )
-
     return data
 
 
@@ -101,12 +108,12 @@ class qa_dataset(Dataset):
         self.max_doc_len = configs["max_document_len"]
         self.max_q_len = configs["max_question_len"]
         self.max_c_len = configs["max_choice_len"]
-        self.tokenizer = {
-            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-            "Roberta": lambda: AutoTokenizer.from_pretrained(
-                "hfl/chinese-roberta-wwm-ext"
-            ),
-        }.get(configs["model"], None)()
+        # self.tokenizer = {
+        #     "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
+        #     "Roberta": lambda: AutoTokenizer.from_pretrained(
+        #         "hfl/chinese-roberta-wwm-ext"
+        #     ),
+        # }.get(configs["model"], None)()
 
         qa_data = qa_preprocess(qa_file)
 
@@ -183,22 +190,21 @@ class risk_dataset(Dataset):
     def __init__(self, configs, risk_file):
         super().__init__()
         self.max_doc_len = configs["max_document_len"]
-        self.tokenizer = {
-            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-            "Roberta": lambda: AutoTokenizer.from_pretrained(
-                "hfl/chinese-roberta-wwm-ext"
-            ),
-        }.get(configs["model"], None)()
+        # self.tokenizer = {
+        #     "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
+        #     "Roberta": lambda: AutoTokenizer.from_pretrained(
+        #         "hfl/chinese-roberta-wwm-ext"
+        #     ),
+        # }.get(configs["model"], None)()
 
         risk_data = risk_preprocess(risk_file)
-
         self.data = []
         for risk_datum in risk_data:
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
             label = risk_datum["label"]
-
-            processed_datum = self.process_risk(article, label)
+            artc, diag = split_sent(article)
+            processed_datum = self.process_risk(diag, label)
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
 
@@ -209,20 +215,22 @@ class risk_dataset(Dataset):
         return self.data[idx]
 
     def process_risk(self, raw_article, label):
-        tokenize_data = self.tokenizer(
-            raw_article,
-            padding="max_length",
-            truncation=True,
-            add_special_tokens=True,
-            max_length=self.max_doc_len,
-            return_tensors="pt",
-        )
+        # tokenize_data = [self.tokenizer(
+        #     s,
+        #     padding="max_length",
+        #     truncation=True,
+        #     add_special_tokens=True,
+        #     max_length=self.max_doc_len,
+        #     return_tensors="pt",
+        # ) for s in raw_article]
 
         out_datum = {
             "article": raw_article,
-            "input_ids": tokenize_data["input_ids"].flatten(),
-            "attention_mask": tokenize_data["attention_mask"].flatten(),
+            # "input_ids": tokenize_data["input_ids"].flatten(),
+            # "attention_mask": tokenize_data["attention_mask"].flatten(),
             "label": torch.tensor(label),
         }
-
         return out_datum
+
+    def collate_fn(self, data):
+        return data
