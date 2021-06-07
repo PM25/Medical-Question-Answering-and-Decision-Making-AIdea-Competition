@@ -148,7 +148,7 @@ if __name__ == "__main__":
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=configs["batch_size"],
+        batch_size=1,
         num_workers=1,
         collate_fn=risk_dataset.collate_fn,
     )
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     test_dataset = risk_dataset(configs["dev_risk_data"], **configs)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=configs["batch_size"],
+        batch_size=1,
         num_workers=1,
         collate_fn=risk_dataset.collate_fn,
     )
