@@ -4,9 +4,10 @@ qa_data: data/Train_qa_ans.json # data/SampleData_QA.json
 risk_data: data/Train_risk_classification_ans.csv # data/SampleData_RiskClassification.csv
 dev_qa_data: data/Develop_QA.json
 dev_risk_data: data/Develop_risk_classification.csv
-# s2t.json / t2s.json / s2tw.json / tw2s.json
+chinese_convert: null
+# chinese_convert can be null/s2t.json / t2s.json / s2tw.json / tw2s.json
 # See https://github.com/BYVoid/OpenCC#configurations-%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6
-chinese_convert: t2s.json
+min_character: 0
 max_character: 500
 overlap_character: 0
 
