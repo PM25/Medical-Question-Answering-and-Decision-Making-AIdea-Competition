@@ -226,6 +226,7 @@ class risk_dataset(Dataset):
         min_character: int = 5,
         max_character: int = 500,
         overlap_character: int = 0,
+        use_final_n_sent: int = 10,
         **kwargs
     ):
         super().__init__()
@@ -250,8 +251,8 @@ class risk_dataset(Dataset):
                 diag = [converter.convert(d) for d in diag]
 
             processed_datum = {
-                "role": role,
-                "diag": diag,
+                "role": role[-use_final_n_sent:],
+                "diag": diag[-use_final_n_sent:],
                 "label": label,
                 "id": article_id,
             }
