@@ -46,8 +46,9 @@ def sliding_window(role, diag, max_character, overlap_character):
             new_role.append(r)
             new_diag.append(remained[:max_character])
             remained = remained[max_character - overlap_character:]
-        new_role.append(r)
-        new_diag.append(remained)
+        if len(remained) > 0:
+            new_role.append(r)
+            new_diag.append(remained)
     return new_role, new_diag
 
 def qa_preprocess(qa_file: str):
