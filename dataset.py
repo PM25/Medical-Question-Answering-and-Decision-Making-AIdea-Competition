@@ -251,9 +251,13 @@ class risk_dataset(Dataset):
             if chinese_convert:
                 diag = [converter.convert(d) for d in diag]
 
+            if use_final_n_sent is not None:
+                role = role[-use_final_n_sent:]
+                diag = diag[-use_final_n_sent:]
+
             processed_datum = {
-                "role": role[-use_final_n_sent:],
-                "diag": diag[-use_final_n_sent:],
+                "role": role,
+                "diag": diag,
                 "label": label,
                 "id": article_id,
             }

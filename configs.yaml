@@ -10,7 +10,7 @@ chinese_convert: null
 min_character: 0
 max_character: 500
 overlap_character: 0
-use_final_n_sent: 10
+use_final_n_sent: null
 
 # device
 device_id: 0 # cpu: -1, gpu: >= 0
