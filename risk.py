@@ -6,13 +6,14 @@ from pathlib import Path
 from sklearn.metrics import roc_auc_score
 
 import torch
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup, logging
 
 from dataset import risk_dataset
-from model import BertClassifier
+from model.risk_model import Classifier
 from utils.setting import set_random_seed, get_device
 
 with open("configs.yaml", "r") as stream:
@@ -44,12 +45,14 @@ def train(model, train_loader, val_loader=None, configs=configs):
         avg_loss, total_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["input_ids"].to(torch_device)
-            attention_mask = batch["attention_mask"].to(torch_device)
-            answer = batch["label"].float().to(torch_device)
+            for key in list(batch.keys()):
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(torch_device)
 
             optimizer.zero_grad()
-            preds, loss = model(input_ids, attention_mask, answer)
+            preds = model(**batch)
+            loss = F.binary_cross_entropy(preds, batch["labels"].float())
+
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -85,15 +88,15 @@ def evaluate(model, val_loader):
     val_loss = []
     all_preds, truth = [], []
     for step, batch in enumerate(val_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-        answer = batch["label"].float().to(torch_device)
+        for key in list(batch.keys()):
+            if isinstance(batch[key], torch.Tensor):
+                batch[key] = batch[key].to(torch_device)
 
-        preds, loss = model(input_ids, attention_mask, answer)
-        # preds[preds > 0.5] = 1
-        # preds[preds <= 0.5] = 0
-        all_preds.extend(preds.tolist())
-        truth.extend(answer.tolist())
+        preds = model(**batch)
+        loss = F.binary_cross_entropy(preds, batch["labels"].float())
+
+        all_preds.extend(preds.cpu().tolist())
+        truth.extend(batch["labels"].cpu().tolist())
         val_loss.append(loss.item())
 
     val_loss = np.mean(val_loss)
@@ -108,14 +111,14 @@ def save_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        article_ids = batch["article_id"]
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
+        for key in list(batch.keys()):
+            if isinstance(batch[key], torch.Tensor):
+                batch[key] = batch[key].to(torch_device)
 
-        preds = model(input_ids, attention_mask)
-        # preds[preds > 0.5] = 1
-        # preds[preds <= 0.5] = 0
-        all_preds.extend(list(zip(article_ids.tolist(), preds.tolist())))
+        preds = model(**batch)
+        all_preds.extend(
+            list(zip(batch["article_id"].cpu().tolist(), preds.cpu().tolist()))
+        )
 
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/decision.csv", "w") as f:
@@ -129,7 +132,7 @@ def save_preds(model, data_loader):
 
 
 if __name__ == "__main__":
-    dataset = risk_dataset(configs, configs["risk_data"])
+    dataset = risk_dataset(configs["risk_data"], **configs)
 
     val_size = int(len(dataset) * configs["val_size"])
     train_size = len(dataset) - val_size
@@ -137,16 +140,27 @@ if __name__ == "__main__":
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(
-        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1
+        train_dataset,
+        batch_size=configs["batch_size"],
+        shuffle=True,
+        num_workers=1,
+        collate_fn=risk_dataset.collate_fn,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=configs["batch_size"], num_workers=1
+        val_dataset,
+        batch_size=configs["batch_size"],
+        num_workers=1,
+        collate_fn=risk_dataset.collate_fn,
     )
 
-    risk_model = train(BertClassifier(configs), train_loader, val_loader)
+    risk_model = Classifier(**configs)
+    risk_model = train(risk_model, train_loader, val_loader)
 
-    test_dataset = risk_dataset(configs, configs["dev_risk_data"])
+    test_dataset = risk_dataset(configs["dev_risk_data"], **configs)
     test_loader = DataLoader(
-        test_dataset, batch_size=configs["batch_size"], num_workers=1
+        test_dataset,
+        batch_size=configs["batch_size"],
+        num_workers=1,
+        collate_fn=risk_dataset.collate_fn,
     )
     save_preds(risk_model, test_loader)

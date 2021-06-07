@@ -4,6 +4,9 @@ qa_data: data/Train_qa_ans.json # data/SampleData_QA.json
 risk_data: data/Train_risk_classification_ans.csv # data/SampleData_RiskClassification.csv
 dev_qa_data: data/Develop_QA.json
 dev_risk_data: data/Develop_risk_classification.csv
+# s2t.json / t2s.json / s2tw.json / tw2s.json
+# See https://github.com/BYVoid/OpenCC#configurations-%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6
+chinese_convert: t2s.json
 
 # device
 device_id: 0 # cpu: -1, gpu: >= 0
@@ -11,7 +14,7 @@ device_id: 0 # cpu: -1, gpu: >= 0
 # train
 seed: 1009
 epochs: 15
-batch_size: 16
+batch_size: 1
 learning_rate: 0.0001
 warmup_steps: 20
 val_size: 0.1
@@ -19,11 +22,18 @@ val_size: 0.1
 log_step: 1
 
 # model
-model: Roberta
-hidden_dim: 300
-n_cls_layers: 3
-dropout: 0.2
-freeze_bert: true
+pretrained_cfg:
+  pretrained: Roberta
+  freeze_pretrained: true
+  embedding_mode: last_cls
+project_size: 256
+diag_pooler_cfg:
+  name: BLSTM
+  BLSTM:
+    hidden_size: 256
+    num_layers: 2
+    dropout: 0.2
+    bidirectional: true
 
 # data processing
 max_document_len: 430

@@ -1,44 +1,28 @@
+from typing import Dict
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pad_sequence
 
-from transformers import BertModel, AutoModel
+from .pretrained import PretrainModel
+from .diag_pooler import get_diag_pooler
 
 
-class BertClassifier(nn.Module):
-    def __init__(self, configs):
+class Classifier(nn.Module):
+    def __init__(
+        self, pretrained_cfg: Dict, project_size: int, diag_pooler_cfg: Dict, **kwargs
+    ):
         super().__init__()
-        self.bert = {
-            "Bert": lambda: BertModel.from_pretrained("bert-base-chinese"),
-            "Roberta": lambda: AutoModel.from_pretrained("hfl/chinese-roberta-wwm-ext"),
-        }.get(configs["model"], None)()
-        D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
+        self.pretrained_model = PretrainModel(**pretrained_cfg)
+        self.projector = nn.Linear(self.pretrained_model.output_size, project_size)
+        self.diag_pooler = get_diag_pooler(project_size, diag_pooler_cfg)
+        self.predictor = nn.Linear(self.diag_pooler.output_size, 1)
 
-        hidden_layers = []
-        hidden_layers.append(nn.Linear(D_in, hidden_dim))
-        for _ in range(configs["n_cls_layers"]):
-            hidden_layers.append(nn.Linear(hidden_dim, hidden_dim))
-            hidden_layers.append(nn.ReLU())
-            hidden_layers.append(nn.Dropout(configs["dropout"]))
-        hidden_layers.append(nn.Linear(hidden_dim, D_out))
-        self.classifier = nn.Sequential(*hidden_layers)
-
-        if configs["freeze_bert"]:
-            for param in self.bert.parameters():
-                param.requires_grad = False
-
-    def forward(self, input_ids, attention_mask, answer=None):
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        last_hidden_state_cls = outputs[0][:, 0, :]
-        logits = self.classifier(last_hidden_state_cls)
-        outputs = torch.sigmoid(logits).flatten()
-
-        if answer is not None:
-            loss = F.binary_cross_entropy(outputs, answer)
-            # outputs = self(input_ids, attention_mask)
-            # pred = torch.argmax(outputs, dim=1)
-            # answer = torch.argmax(answer, dim=1)
-            # return pred, F.cross_entropy(outputs, answer)
-            return outputs, loss
-
-        return outputs
+    def forward(self, diags, diags_len, roles, **kwargs):
+        embeddings = self.pretrained_model(diags, diags_len.device)
+        embeddings = embeddings.split(diags_len.tolist())
+        embeddings = pad_sequence(embeddings, batch_first=True)
+        embeddings = self.projector(embeddings)
+        pooled_embbedings = self.diag_pooler(embeddings, diags_len)
+        logits = self.predictor(pooled_embbedings).view(-1)
+        return F.sigmoid(logits)

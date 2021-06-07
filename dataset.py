@@ -26,13 +26,28 @@ def split_sent(sentence: str):
 
         idx = res.start(0)
         idx_end = res.end(0)
-        out[-1] = (roles.index(out[-1][0]), remained[:idx])
-        out.append(remained[idx:idx_end])
+        sentence = remained[:idx]
+        if len(sentence) == 0:
+            out[-1] = remained[idx:idx_end]
+        else:
+            out[-1] = (roles.index(out[-1][0]), remained[:idx])
+            out.append(remained[idx:idx_end])
         remained = remained[idx_end:]
 
     out[-1] = (roles.index(out[-1][0]), remained[:idx])
     return zip(*out)
 
+def sliding_window(role, diag, max_character, overlap_character):
+    new_role = []
+    new_diag = []
+    for r, d in zip(role, diag):
+        remained = d
+        while(len(remained) > max_character):
+            new_role.append(r)
+            new_diag.append(remained[:max_character])
+            remained = remained[max_character - overlap_character:]
+        new_diag.append(remained)
+    return new_role, new_diag
 
 def qa_preprocess(qa_file: str):
     with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -181,10 +196,15 @@ class qa_dataset(Dataset):
 
 
 class risk_dataset(Dataset):
-    def __init__(self, configs, risk_file):
+    def __init__(
+        self,
+        risk_file,
+        chinese_convert: str = None,
+        max_character: int = 500,
+        overlap_character: int = 0,
+        **kwargs
+    ):
         super().__init__()
-
-        chinese_convert = configs.get("chinese_convert")
         if chinese_convert:
             converter = opencc.OpenCC(chinese_convert)
 
@@ -196,6 +216,7 @@ class risk_dataset(Dataset):
             article = risk_datum["article"]
             label = risk_datum["label"]
             role, diag = split_sent(article)
+            role, diag = sliding_window(role, diag, max_character, overlap_character)
 
             if chinese_convert:
                 diag = [converter.convert(d) for d in diag]
@@ -203,7 +224,7 @@ class risk_dataset(Dataset):
             processed_datum = {
                 "role": role,
                 "diag": diag,
-                "label": torch.tensor(label),
+                "label": label,
                 "id": article_id,
             }
             self.data.append(processed_datum)
@@ -213,3 +234,21 @@ class risk_dataset(Dataset):
 
     def __getitem__(self, idx: int):
         return self.data[idx]
+
+    @staticmethod
+    def collate_fn(samples):
+        roles, diags, diags_len, labels, ids = [], [], [], [], []
+        for sample in samples:
+            roles += sample["role"]
+            diags += sample["diag"]
+            diags_len.append(len(sample["diag"]))
+            labels.append(sample["label"])
+            ids.append(sample["id"])
+
+        return {
+            "diags": diags,
+            "diags_len": torch.LongTensor(diags_len),
+            "roles": torch.LongTensor(roles),
+            "labels": torch.LongTensor(labels),
+            "ids": torch.LongTensor(ids),
+        }
