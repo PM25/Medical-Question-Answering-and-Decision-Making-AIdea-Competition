@@ -25,13 +25,12 @@ class PretrainModel(nn.Module):
     def __init__(
         self,
         pretrained,
-        freeze_pretrained: bool,
+        trainable_from: int = -1,
         embedding_mode: str = "last_cls",
         max_tokens: int = 10000,
         **kwargs
     ):
         super().__init__()
-        self.freeze_pretrained = freeze_pretrained
         self.embedding_mode = embedding_mode  # last_cls, pooler_output, all_cls
         self.max_tokens = max_tokens
 
@@ -42,6 +41,12 @@ class PretrainModel(nn.Module):
             self.weights = nn.Parameter(
                 torch.zeros(self.model.config.num_hidden_layers + 1)
             )
+        
+        trainable = False
+        for name, para in self.model.named_parameters():
+            if f"layer.{trainable_from}" in name:
+                trainable = True
+            para.requires_grad = trainable
 
     @property
     def output_size(self):
@@ -68,11 +73,7 @@ class PretrainModel(nn.Module):
                 k: v[start : start + minibatch_size]
                 for k, v in tokenizer_result.items()
             }
-            if self.freeze_pretrained:
-                with torch.no_grad():
-                    model_result = self.model(**minibatch, output_hidden_states=True)
-            else:
-                model_result = self.model(**minibatch, output_hidden_states=True)
+            model_result = self.model(**minibatch, output_hidden_states=True)
 
             if self.embedding_mode == "last_cls":
                 output = model_result.last_hidden_state[:, 0, :]

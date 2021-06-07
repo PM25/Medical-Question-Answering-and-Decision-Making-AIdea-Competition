@@ -16,19 +16,18 @@ use_final_n_sent: null
 device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
-seed: 1009
 epochs: 15
 batch_size: 1
 learning_rate: 0.0001
 warmup_steps: 20
-val_size: 0.1
+val_size: 0.2
 
 log_step: 1
 
 # model
 pretrained_cfg:
   pretrained: Roberta
-  freeze_pretrained: true
+  trainable_from: -1  # -1 will freeze the entire model, availables: 0~11
   embedding_mode: last_cls
   max_tokens: 20000
 use_role_embedding: false
