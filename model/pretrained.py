@@ -40,7 +40,7 @@ class PretrainModel(nn.Module):
 
         if self.embedding_mode == "all_cls":
             self.weights = nn.Parameter(
-                torch.zeros(self.model.config.num_hidden_layers)
+                torch.zeros(self.model.config.num_hidden_layers + 1)
             )
 
     @property
