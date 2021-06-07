@@ -7,6 +7,8 @@ dev_risk_data: data/Develop_risk_classification.csv
 # s2t.json / t2s.json / s2tw.json / tw2s.json
 # See https://github.com/BYVoid/OpenCC#configurations-%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6
 chinese_convert: t2s.json
+max_character: 500
+overlap_character: 0
 
 # device
 device_id: 0 # cpu: -1, gpu: >= 0
@@ -26,6 +28,7 @@ pretrained_cfg:
   pretrained: Roberta
   freeze_pretrained: true
   embedding_mode: last_cls
+  max_tokens: 20000
 project_size: 256
 diag_pooler_cfg:
   name: BLSTM
