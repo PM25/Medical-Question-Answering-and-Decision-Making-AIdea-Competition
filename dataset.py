@@ -12,41 +12,62 @@ import opencc
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 roles = ["護", "醫", "民", "家", "個"]
+spkr_lst = ["民眾", "個管師", "醫師", "護理師", "家屬", "藥師"]
 
 
-def split_sent(sentence: str):
-    first_role_idx = re.search(":", sentence).end(0)
-    out = [sentence[:first_role_idx]]
+def spkr_normalize(spkr: list):
+    for spkr_std in spkr_lst:
+        if spkr[:-1] in spkr_std or spkr_std in spkr:
+            return spkr_std
+        elif spkr == "種:":
+            return "民眾"
+        elif spkr == "耍:":
+            return "家屬"
+        elif spkr == "生:":
+            return "醫師"
 
-    remained = sentence[first_role_idx:]
-    while remained:
-        res = re.search(r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:)", remained)
-        if res is None:
-            break
 
-        idx = res.start(0)
-        idx_end = res.end(0)
-        sentence = remained[:idx]
-        next_role = remained[idx:idx_end]
-        if len(sentence) == 0:
-            out[-1] = next_role
-        else:
-            out[-1] = (roles.index(out[-1][0]), sentence)
-            out.append(next_role)
-        remained = remained[idx_end:]
+def split_sent(article: str):
+    diag = []
+    res = re.compile(
+        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)"
+    )
+    spkr_place_lst = [
+        (spkr_place.start(), spkr_place.end()) for spkr_place in res.finditer(article)
+    ]
+    sent_place_lst = [
+        (spkr_place_lst[i][1], spkr_place_lst[i + 1][0])
+        for i in range(len(spkr_place_lst) - 1)
+    ]
+    for (spkr_place, sent_place) in zip(spkr_place_lst[:-1], sent_place_lst):
+        spkr_start, spkr_end = spkr_place
+        sent_start, sent_end = sent_place
+        spkr = article[spkr_start:spkr_end]
+        if spkr != "不確定人物:":
+            sent = article[sent_start:sent_end]
+            if len(sent) != 0:
+                diag.append([spkr_normalize(spkr), sent])
 
-    out[-1] = (roles.index(out[-1][0]), remained[:idx])
-    return zip(*out)
+    spkr_start, spkr_end = spkr_place_lst[-1]
+    diag.append(
+        [
+            spkr_normalize(article[spkr_start:spkr_end]),
+            article[spkr_end:],
+        ]
+    )
+    diag = [(spkr_lst.index(d[0]), d[1]) for d in diag]
+    return zip(*diag)
+
 
 def sliding_window(role, diag, max_character, overlap_character):
     new_role = []
     new_diag = []
     for r, d in zip(role, diag):
         remained = d
-        while(len(remained) > max_character):
+        while len(remained) > max_character:
             new_role.append(r)
             new_diag.append(remained[:max_character])
-            remained = remained[max_character - overlap_character:]
+            remained = remained[max_character - overlap_character :]
         if len(remained) > 0:
             new_role.append(r)
             new_diag.append(remained)
@@ -221,7 +242,9 @@ class risk_dataset(Dataset):
             label = risk_datum["label"]
             role, diag = split_sent(article)
             role, diag = sliding_window(role, diag, max_character, overlap_character)
-            role, diag = zip(*[(r, d) for r, d in zip(role, diag) if len(d) > min_character])
+            role, diag = zip(
+                *[(r, d) for r, d in zip(role, diag) if len(d) > min_character]
+            )
             assert len(role) == len(diag)
 
             if chinese_convert:
