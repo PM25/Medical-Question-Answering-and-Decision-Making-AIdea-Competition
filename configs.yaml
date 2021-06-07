@@ -29,4 +29,6 @@ cls: true
 # data processing
 max_document_len: 430
 max_question_len: 50
-max_choice_len: 32
+max_choice_len: 
+spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
+
