@@ -7,7 +7,8 @@ from torch.nn.utils.rnn import pad_sequence
 from .pretrained import PretrainModel
 from .pooling import get_pooler
 
-NUM_ROLES = 5
+NUM_ROLES = 6
+
 
 class Classifier(nn.Module):
     def __init__(

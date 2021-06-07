@@ -11,7 +11,6 @@ from torch.utils.data import Dataset, DataLoader
 import opencc
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-roles = ["護", "醫", "民", "家", "個"]
 spkr_lst = ["民眾", "個管師", "醫師", "護理師", "家屬", "藥師"]
 
 
