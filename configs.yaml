@@ -37,6 +37,7 @@ diag_pooler_cfg:
     num_layers: 2
     dropout: 0.2
     bidirectional: true
+  AttentivePooling: {}
 
 # data processing
 max_document_len: 430
