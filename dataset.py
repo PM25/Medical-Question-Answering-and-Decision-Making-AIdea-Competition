@@ -211,7 +211,7 @@ class risk_dataset(Dataset):
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
             label = risk_datum["label"]
-            diag = split_sent(article)
+            diag = split_sent(article, configs['spkr'])
             processed_datum = self.process_risk(diag, label)
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
