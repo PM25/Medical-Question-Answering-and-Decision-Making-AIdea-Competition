@@ -200,6 +200,7 @@ class risk_dataset(Dataset):
         self,
         risk_file,
         chinese_convert: str = None,
+        min_character: int = 5,
         max_character: int = 500,
         overlap_character: int = 0,
         **kwargs
@@ -217,6 +218,8 @@ class risk_dataset(Dataset):
             label = risk_datum["label"]
             role, diag = split_sent(article)
             role, diag = sliding_window(role, diag, max_character, overlap_character)
+            role, diag = zip(*[(r, d) for r, d in zip(role, diag) if len(d) > min_character])
+            assert len(role) == len(diag)
 
             if chinese_convert:
                 diag = [converter.convert(d) for d in diag]
