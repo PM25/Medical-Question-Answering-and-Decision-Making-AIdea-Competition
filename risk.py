@@ -110,6 +110,7 @@ def evaluate(args, configs, model, val_loader):
     val_loss = np.mean(val_loss)
     score = roc_auc_score(truth, all_preds) if len(truth) != 0 else np.nan
 
+    model.train()
     return val_loss, score
 
 
