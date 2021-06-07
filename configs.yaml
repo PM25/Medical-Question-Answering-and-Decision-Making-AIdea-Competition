@@ -31,6 +31,7 @@ pretrained_cfg:
   freeze_pretrained: true
   embedding_mode: last_cls
   max_tokens: 20000
+use_role_embedding: false
 project_size: 256
 pooler_cfg:
   name: BLSTM
