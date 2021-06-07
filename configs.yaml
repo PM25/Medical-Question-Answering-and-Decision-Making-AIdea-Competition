@@ -30,7 +30,7 @@ pretrained_cfg:
   embedding_mode: last_cls
   max_tokens: 20000
 project_size: 256
-diag_pooler_cfg:
+pooler_cfg:
   name: BLSTM
   BLSTM:
     hidden_size: 256
