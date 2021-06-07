@@ -1,10 +1,4 @@
 import re
-import yaml
-from torch.utils.data import DataLoader
-
-with open("configs.yaml", "r") as stream:
-    config = yaml.safe_load(stream)
-
 
 punction_mapping = {
     "······": "⋯",
