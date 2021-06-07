@@ -72,6 +72,7 @@ def sliding_window(role, diag, max_character, overlap_character):
             new_diag.append(remained)
     return new_role, new_diag
 
+
 def qa_preprocess(qa_file: str):
     with open(qa_file, "r", encoding="utf-8") as f_QA:
         # One sample of QA
