@@ -27,11 +27,12 @@ def split_sent(sentence: str):
         idx = res.start(0)
         idx_end = res.end(0)
         sentence = remained[:idx]
+        next_role = remained[idx:idx_end]
         if len(sentence) == 0:
-            out[-1] = remained[idx:idx_end]
+            out[-1] = next_role
         else:
-            out[-1] = (roles.index(out[-1][0]), remained[:idx])
-            out.append(remained[idx:idx_end])
+            out[-1] = (roles.index(out[-1][0]), sentence)
+            out.append(next_role)
         remained = remained[idx_end:]
 
     out[-1] = (roles.index(out[-1][0]), remained[:idx])
