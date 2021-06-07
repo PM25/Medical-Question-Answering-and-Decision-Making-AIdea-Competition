@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
-def get_diag_pooler(input_size, config):
+def get_pooler(input_size, config):
     module_name = config.pop("name")
     module_cfg = config[module_name]
     model = eval(module_name)(input_size=input_size, **module_cfg)

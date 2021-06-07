@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
 from .pretrained import PretrainModel
-from .diag_pooler import get_diag_pooler
+from .pooling import get_pooler
 
 
 class Classifier(nn.Module):
@@ -15,7 +15,7 @@ class Classifier(nn.Module):
         super().__init__()
         self.pretrained_model = PretrainModel(**pretrained_cfg)
         self.projector = nn.Linear(self.pretrained_model.output_size, project_size)
-        self.diag_pooler = get_diag_pooler(project_size, diag_pooler_cfg)
+        self.diag_pooler = get_pooler(project_size, diag_pooler_cfg)
         self.predictor = nn.Linear(self.diag_pooler.output_size, 1)
 
     def forward(self, diags, diags_len, roles, **kwargs):
