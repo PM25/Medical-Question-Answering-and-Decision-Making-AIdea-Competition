@@ -9,37 +9,52 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-# spkr token
-# redundant sentence pruning
-# preprocessor
 
+# spkr token
+# 標點符號標準化
+# 語助詞過濾(欸, 啦, 了, 啊, 阿)
+# 英文轉中文 No->不 Prep->藥
 # 感嘆詞拉掉
 # 比較有無標點符號
+# 數字轉中文(或拉掉)
 
 # LEO:
 # HEAD訓練的過程寫好
 # 繁簡體差異確定
-def split_sent(sentence: str):
-    first_role_idx = re.search(":", sentence).end(0)
-    out = [sentence[:first_role_idx]]
 
-    tmp = sentence[first_role_idx:]
-    while tmp:
-        res = re.search(r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:)", tmp)
-        if res is None:
-            break
 
-        idx = res.start(0)
-        idx_end = res.end(0)
-        out[-1] = list(out[-1] + tmp[:idx])
-        out.append(tmp[idx:idx_end])
-        tmp = tmp[idx_end:]
+def spkr_normalize(spkr: list, spkr_lst: list):
+    for spkr_std in spkr_lst:
+        if spkr[:-1] in spkr_std or spkr_std in spkr:
+            return spkr_std
+        elif spkr == '種:':
+            return '民眾'
+        elif spkr == '耍:':
+            return '家屬'
+        elif spkr == '生:':
+            return '醫師'
 
-    out[-1] = list(out[-1] + tmp)
-    diag = [''.join(s).split(':') for s in out]
-    artc = ''.join([s[1] for s in diag])
-    return artc, diag
 
+def split_sent(article: str, spkr_lst: list):
+    diag = []
+    res = re.compile(
+        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)")
+    spkr_place_lst = [(spkr_place.start(), spkr_place.end())
+                      for spkr_place in res.finditer(article)]
+    sent_place_lst = [(spkr_place_lst[i][1], spkr_place_lst[i+1][0])
+                      for i in range(len(spkr_place_lst) - 1)]
+    for (spkr_place, sent_place) in zip(spkr_place_lst[:-1], sent_place_lst):
+        spkr_start, spkr_end = spkr_place
+        sent_start, sent_end = sent_place
+        spkr = article[spkr_start: spkr_end]
+        if spkr != '不確定人物:':
+            sent = article[sent_start: sent_end]
+            if len(sent) != 0:
+                diag.append([spkr_normalize(spkr, spkr_lst), sent])
+
+    spkr_start, spkr_end = spkr_place_lst[-1]
+    diag.append(
+        [spkr_normalize(article[spkr_start: spkr_end], spkr_lst), article[spkr_end:]])
 
 def qa_preprocess(qa_file: str):
     with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -190,20 +205,13 @@ class risk_dataset(Dataset):
     def __init__(self, configs, risk_file):
         super().__init__()
         self.max_doc_len = configs["max_document_len"]
-        # self.tokenizer = {
-        #     "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-        #     "Roberta": lambda: AutoTokenizer.from_pretrained(
-        #         "hfl/chinese-roberta-wwm-ext"
-        #     ),
-        # }.get(configs["model"], None)()
-
         risk_data = risk_preprocess(risk_file)
         self.data = []
         for risk_datum in risk_data:
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
             label = risk_datum["label"]
-            artc, diag = split_sent(article)
+            diag = split_sent(article)
             processed_datum = self.process_risk(diag, label)
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
@@ -215,19 +223,8 @@ class risk_dataset(Dataset):
         return self.data[idx]
 
     def process_risk(self, raw_article, label):
-        # tokenize_data = [self.tokenizer(
-        #     s,
-        #     padding="max_length",
-        #     truncation=True,
-        #     add_special_tokens=True,
-        #     max_length=self.max_doc_len,
-        #     return_tensors="pt",
-        # ) for s in raw_article]
-
         out_datum = {
             "article": raw_article,
-            # "input_ids": tokenize_data["input_ids"].flatten(),
-            # "attention_mask": tokenize_data["attention_mask"].flatten(),
             "label": torch.tensor(label),
         }
         return out_datum
