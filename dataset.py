@@ -2,67 +2,15 @@ import os
 import re
 import csv
 import json
-import jieba
+import random
 import numpy as np
 from unicodedata import normalize
-
+from parsing import text_preprocessing, remove_unimportant, remove_repeated, replace_mapping
 import torch
 from torch.utils.data import Dataset, DataLoader
-
-from utils.regular_exp import *
+import jieba
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# spkr token
-# 標點符號標準化
-# 語助詞過濾(欸, 啦, 了, 啊, 阿)
-# 英文轉中文 No->不 Prep->藥
-# 感嘆詞拉掉
-# 比較有無標點符號
-# 數字轉中文(或拉掉)
-
-# LEO:
-# HEAD訓練的過程寫好
-# 繁簡體差異確定
-
-
-def spkr_normalize(spkr: list, spkr_lst: list):
-    for spkr_std in spkr_lst:
-        if spkr[:-1] in spkr_std or spkr_std in spkr:
-            return spkr_std
-        elif spkr == "種:":
-            return "民眾"
-        elif spkr == "耍:":
-            return "家屬"
-        elif spkr == "生:":
-            return "醫師"
-
-
-def split_sent(article: str, spkr_lst: list):
-    diag = []
-    res = re.compile(
-        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)"
-    )
-    spkr_place_lst = [
-        (spkr_place.start(), spkr_place.end()) for spkr_place in res.finditer(article)
-    ]
-    sent_place_lst = [
-        (spkr_place_lst[i][1], spkr_place_lst[i + 1][0])
-        for i in range(len(spkr_place_lst) - 1)
-    ]
-    for (spkr_place, sent_place) in zip(spkr_place_lst[:-1], sent_place_lst):
-        spkr_start, spkr_end = spkr_place
-        sent_start, sent_end = sent_place
-        spkr = article[spkr_start:spkr_end]
-        if spkr != "不確定人物:":
-            sent = article[sent_start:sent_end]
-            if len(sent) != 0:
-                diag.append([spkr_normalize(spkr, spkr_lst), sent])
-
-    spkr_start, spkr_end = spkr_place_lst[-1]
-    diag.append(
-        [spkr_normalize(article[spkr_start:spkr_end], spkr_lst), article[spkr_end:]]
-    )
 
 
 def jieba_cut(article):
@@ -74,6 +22,45 @@ def jieba_cut(article):
         out.append(list(jieba.cut_for_search(sent)))
     return out
 
+def spkr_normalize(spkr: str, spkr_lst: list):
+    for spkr_std in spkr_lst:
+        if spkr[:-1] in spkr_std or spkr_std in spkr:
+            return spkr_std
+        elif spkr == '種:':
+            return '民眾'
+        elif spkr == '耍:':
+            return '家屬'
+        elif spkr == '生:':
+            return '醫師'
+
+
+def split_sent(article: str, spkr_lst: list):
+    diag = []
+    res = re.compile(
+        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)")
+    spkr_place_lst = [(spkr_place.start(), spkr_place.end())
+                      for spkr_place in res.finditer(article)]
+    sent_place_lst = [(spkr_place_lst[i][1], spkr_place_lst[i+1][0])
+                      for i in range(len(spkr_place_lst) - 1)]
+    for (spkr_place, sent_place) in zip(spkr_place_lst[:-1], sent_place_lst):
+        spkr_start, spkr_end = spkr_place
+        sent_start, sent_end = sent_place
+        spkr = article[spkr_start: spkr_end]
+        if spkr != '不確定人物:':
+            sent = article[sent_start: sent_end]
+            if len(sent) != 0:
+                diag.append([spkr_normalize(spkr, spkr_lst), sent])
+
+    spkr_start, spkr_end = spkr_place_lst[-1]
+    diag.append(
+        [spkr_normalize(article[spkr_start: spkr_end], spkr_lst), article[spkr_end:]])
+    
+    diag_pro = []
+    for d in diag:
+        d[1] = text_preprocessing(d[1])
+        if len(d[1]) > 0:
+            diag_pro.append([d[0], d[1]])
+    return diag_pro
 
 def qa_preprocess(qa_file: str):
     with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -221,26 +208,31 @@ class qa_dataset(Dataset):
 
 
 class risk_dataset(Dataset):
-    def __init__(self, configs, risk_file):
+    def __init__(self, configs, risk_file, aug_mode=None):
         super().__init__()
-        self.max_doc_len = configs["max_document_len"]
-        risk_data = risk_preprocess(risk_file)
+        self.aug_mode = aug_mode
         self.data = []
+        risk_data = risk_preprocess(risk_file)
         for risk_datum in risk_data:
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
+
             label = risk_datum["label"]
-            diag = split_sent(article, configs["spkr"])
+            diag = split_sent(article, configs['spkr'])
             processed_datum = self.process_risk(diag, label)
-            processed_datum["article"] = article
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
-
+                
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx: int):
-        return self.data[idx]
+        data = self.data[idx]
+        if self.aug_mode is None:
+            article_sample = data['article']
+        else:
+            article_sample = eval(f'self.{self.aug_mode}_sent_aug(data["article"])')
+        return {'label': data['label'], "article_id": data["article_id"], 'article': article_sample}
 
     def process_risk(self, raw_article, label):
         out_datum = {
@@ -249,23 +241,44 @@ class risk_dataset(Dataset):
         }
         return out_datum
 
+    def long_sent_aug(self, data):
+        idx_med = random.choice([i for i in range(len(data)) if len(data[i][1]) > 10])
+        return self.backward_sample(data, idx_med, random.randint(160, 210)) \
+            + [data[idx_med]] + self.forward_sample(data, idx_med, random.randint(160, 210))
+
+    def last_sent_aug(self, data):
+        idx_last = len(data) - 1
+        return self.backward_sample(data, idx_last, random.randint(350, 420)) + [data[idx_last]]
+
+    def first_sent_aug(self, data):
+        idx_first = 0
+        return [data[idx_first]] + self.forward_sample(data, idx_first, random.randint(350, 420))
+
+    def forward_sample(self, data, idx, thr):
+        count = 0
+        samples = []
+        for i in range(idx + 1, len(data)):
+            count += len(data[i][1])
+            if count <= thr:
+                samples.append(data[i])
+            else:
+                break
+        return samples
+    
+    def backward_sample(self, data, idx, thr):
+        count = 0
+        samples = []
+        for i in range(idx - 1, -1, -1):
+            count += len(data[i][1])
+            if count <= thr:
+                samples.append(data[i])
+            else:
+                break
+        samples.reverse()
+        return samples
+
     def collate_fn(self, data):
         return data
 
-
-if __name__ == "__main__":
-    import yaml
-
-    with open("configs.yaml", "r") as stream:
-        configs = yaml.safe_load(stream)
-
-    dataset = risk_dataset(configs, configs["risk_data"])
-    non_chinese = []
-    for datum in dataset:
-        article = datum["article"]
-        sent = remove_unimportant(article)
-        sent = remove_repeated(sent.upper())
-        print(get_non_chinese(sent, digit=False))
-        non_chinese.extend(get_non_chinese(sent, digit=False))
-        # print(list(jieba.cut_for_search(sent)))
-    print(set(non_chinese))
+# parsing
+# auc-roc
