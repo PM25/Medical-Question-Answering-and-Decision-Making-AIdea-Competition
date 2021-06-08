@@ -118,7 +118,7 @@ def save_preds(model, data_loader):
             csvwriter.writerow([article_id, prob])
     with open("output/decision_configs.yml", "w") as yaml_file:
         yaml.dump(configs, yaml_file, default_flow_style=False)
-    print("*Successfully saved prediction to output/decision.csv")
+    print("Successfully saved prediction to output/decision.csv")
 
 
 if __name__ == "__main__":
@@ -128,9 +128,8 @@ if __name__ == "__main__":
     train_size = len(dataset) - val_size
 
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    train_dataset.aug_mode = 'long'
-    val_dataset.aug_mode = 'long'
-
+    train_dataset.test = False
+    
     train_loader = DataLoader(
         train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1, collate_fn=dataset.collate_fn
     )
@@ -141,7 +140,6 @@ if __name__ == "__main__":
     risk_model = train(BertClassifier(configs), train_loader, val_loader)
     
     test_dataset = risk_dataset(configs, configs["dev_risk_data"])
-    test_dataset.aug_mode = 'long'
     test_loader = DataLoader(
         test_dataset, batch_size=1, num_workers=1, collate_fn=test_dataset.collate_fn
     )
