@@ -27,7 +27,7 @@ logging.set_verbosity(logging.ERROR)
 def train(model, train_loader, val_loader=None, configs=configs):
     model.train()
     model.to(torch_device)
-
+   
     optimizer = AdamW(
         model.parameters(),
         lr=configs["learning_rate"],
@@ -44,12 +44,10 @@ def train(model, train_loader, val_loader=None, configs=configs):
         avg_loss, total_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["input_ids"].to(torch_device)
-            attention_mask = batch["attention_mask"].to(torch_device)
-            answer = batch["label"].float().to(torch_device)
-
+            article = [b['article'] for b in batch]
+            answer = torch.Tensor([b['label'] for b in batch]).float().to(torch_device)
             optimizer.zero_grad()
-            preds, loss = model(input_ids, attention_mask, answer)
+            preds, loss = model(article, torch_device, answer)
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -73,32 +71,31 @@ def train(model, train_loader, val_loader=None, configs=configs):
                     f"[Epoch:{epoch}] Train Loss:{avg_loss:.3f}"
                 )
                 avg_loss = 0
-
+        
+        if epoch + 1 >= configs["warmup_epoch"]:
+            for param in model.pretrained_model.bert.parameters():
+                param.requires_grad = True
+            
     writer.close()
     return model
 
 
 def evaluate(model, val_loader):
     model.eval()
-    model.to(torch_device)
+    with torch.no_grad():
+        val_loss = []
+        all_preds, truth = [], []
+        for step, batch in enumerate(val_loader):
+            article = [b['article'] for b in batch]
+            answer = torch.Tensor([b['label'] for b in batch]).float().to(torch_device)
+            preds, loss = model(article, torch_device, answer)
+            all_preds.extend(preds.tolist())
+            truth.extend(answer.tolist())
+            val_loss.append(loss.item())
 
-    val_loss = []
-    all_preds, truth = [], []
-    for step, batch in enumerate(val_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-        answer = batch["label"].float().to(torch_device)
-
-        preds, loss = model(input_ids, attention_mask, answer)
-        # preds[preds > 0.5] = 1
-        # preds[preds <= 0.5] = 0
-        all_preds.extend(preds.tolist())
-        truth.extend(answer.tolist())
-        val_loss.append(loss.item())
-
-    val_loss = np.mean(val_loss)
-    score = roc_auc_score(truth, all_preds) if len(truth) != 0 else np.nan
-
+        val_loss = np.mean(val_loss)
+        score = roc_auc_score(truth, all_preds) if len(truth) != 0 else np.nan
+    model.train()
     return val_loss, score
 
 
@@ -108,14 +105,10 @@ def save_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        article_ids = batch["article_id"]
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-
-        preds = model(input_ids, attention_mask)
-        # preds[preds > 0.5] = 1
-        # preds[preds <= 0.5] = 0
-        all_preds.extend(list(zip(article_ids.tolist(), preds.tolist())))
+        article_ids = [b['article_id'] for b in batch]
+        article = [b['article'] for b in batch]
+        preds = model(article, torch_device)
+        all_preds.extend(list(zip(article_ids, preds.tolist())))
 
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/decision.csv", "w") as f:
@@ -125,7 +118,7 @@ def save_preds(model, data_loader):
             csvwriter.writerow([article_id, prob])
     with open("output/decision_configs.yml", "w") as yaml_file:
         yaml.dump(configs, yaml_file, default_flow_style=False)
-    print("*Successfully saved prediction to output/risk.csv")
+    print("*Successfully saved prediction to output/decision.csv")
 
 
 if __name__ == "__main__":
@@ -135,18 +128,21 @@ if __name__ == "__main__":
     train_size = len(dataset) - val_size
 
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_dataset.aug_mode = 'long'
+    val_dataset.aug_mode = 'long'
 
     train_loader = DataLoader(
-        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1
+        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1, collate_fn=dataset.collate_fn
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=configs["batch_size"], num_workers=1
+        val_dataset, batch_size=1, num_workers=1, collate_fn=dataset.collate_fn
     )
 
     risk_model = train(BertClassifier(configs), train_loader, val_loader)
-
+    
     test_dataset = risk_dataset(configs, configs["dev_risk_data"])
+    test_dataset.aug_mode = 'long'
     test_loader = DataLoader(
-        test_dataset, batch_size=configs["batch_size"], num_workers=1
+        test_dataset, batch_size=1, num_workers=1, collate_fn=test_dataset.collate_fn
     )
     save_preds(risk_model, test_loader)
