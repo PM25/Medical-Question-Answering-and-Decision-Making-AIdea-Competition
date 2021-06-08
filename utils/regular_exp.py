@@ -42,7 +42,7 @@ def get_punctions(text, digit=True):
 
 
 def get_repeated(text):
-    matcher = re.compile(r"(.)\1+")
+    matcher = re.compile(r"(.+)\1+")
     return set([match.group() for match in matcher.finditer(text)])
 
 
@@ -55,5 +55,11 @@ def remove_unimportant(text):
 def remove_repeated(text):
     repeateds = get_repeated(text)
     for repeated in repeateds:
-        text = text.replace(repeated, repeated[0])
+        repeat_unit = re.findall(r"(.+)\1+", repeated)
+        text = text.replace(repeated, repeat_unit[0])
     return text
+
+
+# Test
+if __name__ == "__main__":
+    print(remove_repeated("嗨嗨你好你好嗨嗨我是誰是的是得"))
