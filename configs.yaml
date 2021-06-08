@@ -22,12 +22,13 @@ log_step: 1
 model: Roberta
 hidden_dim: 256
 dropout: 0.2
-warmup_epoch: 1
+warmup_epoch: 10
 latent_mode: cls
 activation: GELU
   
 # data processing
-max_document_len: 430
+max_document_len: 512
 max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
+aug_mode: 'long'

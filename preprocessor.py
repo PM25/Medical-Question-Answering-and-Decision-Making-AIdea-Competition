@@ -8,12 +8,12 @@ class PretrainModel(nn.Module):
     def __init__(self, configs):
         super().__init__()
         self.bert = {
-            "Bert": lambda: BertModel.from_pretrained("bert-base-chinese", output_hidden_states=True),
+            "Bert": lambda: BertModel.from_pretrained("ckiplab/bert-base-chinese", output_hidden_states=True),
             "Roberta": lambda: AutoModel.from_pretrained("hfl/chinese-roberta-wwm-ext", output_hidden_states=True),
         }.get(configs["model"], None)()
 
         self.tokenizer = {
-            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese", additional_special_tokens = ['[' + spkr + ']' for spkr in configs['spkr']]),
+            "Bert": lambda: BertTokenizer.from_pretrained("ckiplab/bert-base-chinese", additional_special_tokens = ['[' + spkr + ']' for spkr in configs['spkr']]),
             "Roberta": lambda: AutoTokenizer.from_pretrained(
                 "hfl/chinese-roberta-wwm-ext", additional_special_tokens = ['[' + spkr + ']' for spkr in configs['spkr']]
             ),
