@@ -49,6 +49,8 @@ def get_repeated(text):
 def remove_unimportant(text):
     for t in unimportant:
         text = text.replace(t, "")
+    for p, t in punction_mapping.items():
+        text = text.replace(p, t)
     return text
 
 
@@ -62,4 +64,5 @@ def remove_repeated(text):
 
 # Test
 if __name__ == "__main__":
+    print(remove_unimportant(".。測試測試~。測試測試......?......"))
     print(remove_repeated("嗨嗨你好你好嗨嗨我是誰是的是得"))
