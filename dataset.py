@@ -5,19 +5,14 @@ import json
 import random
 import numpy as np
 from unicodedata import normalize
-<<<<<<< HEAD
-from parsing import *
-=======
 from parsing import text_preprocessing
->>>>>>> 2deb3d550ab44cf7fbe4e39a3c5e979f958aced8
 import torch
 from torch.utils.data import Dataset, DataLoader
-# import jieba
+import jieba
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-<<<<<<< HEAD
 def jieba_cut(article):
     out = []
     for sent in split_sent(article):
@@ -27,16 +22,6 @@ def jieba_cut(article):
         # sent = replace_mapping(sent)
         out.append(list(jieba.cut_for_search(sent)))
     return out
-=======
-# def jieba_cut(article):
-#     out = []
-#     for sent in split_sent(article):
-#         sent = remove_unimportant(sent)
-#         sent = remove_repeated(sent.upper())
-#         sent = replace_mapping(sent)
-#         out.append(list(jieba.cut_for_search(sent)))
-#     return out
->>>>>>> 2deb3d550ab44cf7fbe4e39a3c5e979f958aced8
 
 
 def spkr_normalize(spkr: str, spkr_lst: list):
@@ -233,7 +218,7 @@ class qa_dataset(Dataset):
 class risk_dataset(Dataset):
     def __init__(self, configs, risk_file, test=True):
         super().__init__()
-        self.aug_mode = configs['aug_mode']
+        self.aug_mode = configs["aug_mode"]
         self.test = test
         self.data = []
         risk_data = risk_preprocess(risk_file)
@@ -271,46 +256,36 @@ class risk_dataset(Dataset):
 
     def long_sent_aug(self, data):
         idx_med = random.choice([i for i in range(len(data)) if len(data[i][1]) > 10])
-<<<<<<< HEAD
-        return (
-            self.backward_sample(data, idx_med, random.randint(160, 210))
-            + [data[idx_med]]
-            + self.forward_sample(data, idx_med, random.randint(160, 210))
-        )
-
-    def last_sent_aug(self, data):
-        idx_last = len(data) - 1
-        return self.backward_sample(data, idx_last, random.randint(350, 420)) + [
-            data[idx_last]
-        ]
-
-    def first_sent_aug(self, data):
-        idx_first = 0
-        return [data[idx_first]] + self.forward_sample(
-            data, idx_first, random.randint(350, 420)
-        )
-=======
         if self.test:
-            return self.backward_sample(data, idx_med, 255) \
-                + [data[idx_med]] + self.forward_sample(data, idx_med, 255)
+            return (
+                self.backward_sample(data, idx_med, 255)
+                + [data[idx_med]]
+                + self.forward_sample(data, idx_med, 255)
+            )
         else:
-            return self.backward_sample(data, idx_med, random.randint(200, 255)) \
-                + [data[idx_med]] + self.forward_sample(data, idx_med, random.randint(200, 255))
+            return (
+                self.backward_sample(data, idx_med, random.randint(200, 255))
+                + [data[idx_med]]
+                + self.forward_sample(data, idx_med, random.randint(200, 255))
+            )
 
     def last_sent_aug(self, data):
         idx_last = len(data) - 1
         if self.test:
             return self.backward_sample(data, idx_last, 512) + [data[idx_last]]
         else:
-            return self.backward_sample(data, idx_last, random.randint(400, 512)) + [data[idx_last]]
+            return self.backward_sample(data, idx_last, random.randint(400, 512)) + [
+                data[idx_last]
+            ]
 
     def first_sent_aug(self, data):
         idx_first = 0
         if self.test:
             return [data[idx_first]] + self.forward_sample(data, idx_first, 512)
         else:
-            return [data[idx_first]] + self.forward_sample(data, idx_first, random.randint(400, 512))
->>>>>>> 2deb3d550ab44cf7fbe4e39a3c5e979f958aced8
+            return [data[idx_first]] + self.forward_sample(
+                data, idx_first, random.randint(400, 512)
+            )
 
     def forward_sample(self, data, idx, thr):
         count = 0
