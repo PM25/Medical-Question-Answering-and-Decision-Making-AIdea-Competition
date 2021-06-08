@@ -2,11 +2,14 @@ import os
 import re
 import csv
 import json
+import jieba
 import numpy as np
 from unicodedata import normalize
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+from utils.regular_exp import *
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -27,34 +30,49 @@ def spkr_normalize(spkr: list, spkr_lst: list):
     for spkr_std in spkr_lst:
         if spkr[:-1] in spkr_std or spkr_std in spkr:
             return spkr_std
-        elif spkr == '種:':
-            return '民眾'
-        elif spkr == '耍:':
-            return '家屬'
-        elif spkr == '生:':
-            return '醫師'
+        elif spkr == "種:":
+            return "民眾"
+        elif spkr == "耍:":
+            return "家屬"
+        elif spkr == "生:":
+            return "醫師"
 
 
 def split_sent(article: str, spkr_lst: list):
     diag = []
     res = re.compile(
-        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)")
-    spkr_place_lst = [(spkr_place.start(), spkr_place.end())
-                      for spkr_place in res.finditer(article)]
-    sent_place_lst = [(spkr_place_lst[i][1], spkr_place_lst[i+1][0])
-                      for i in range(len(spkr_place_lst) - 1)]
+        r"(護理師[\w*]\s*:|醫師\s*:|民眾\s*:|家屬[\w*]\s*:|個管師\s*:|家屬:|護理師:|醫師A:|藥師:|民眾A:|醫師B:|管師:|不確定人物:|種:|眾:|耍:|生:|家屬、B:|女醫師:)"
+    )
+    spkr_place_lst = [
+        (spkr_place.start(), spkr_place.end()) for spkr_place in res.finditer(article)
+    ]
+    sent_place_lst = [
+        (spkr_place_lst[i][1], spkr_place_lst[i + 1][0])
+        for i in range(len(spkr_place_lst) - 1)
+    ]
     for (spkr_place, sent_place) in zip(spkr_place_lst[:-1], sent_place_lst):
         spkr_start, spkr_end = spkr_place
         sent_start, sent_end = sent_place
-        spkr = article[spkr_start: spkr_end]
-        if spkr != '不確定人物:':
-            sent = article[sent_start: sent_end]
+        spkr = article[spkr_start:spkr_end]
+        if spkr != "不確定人物:":
+            sent = article[sent_start:sent_end]
             if len(sent) != 0:
                 diag.append([spkr_normalize(spkr, spkr_lst), sent])
 
     spkr_start, spkr_end = spkr_place_lst[-1]
     diag.append(
-        [spkr_normalize(article[spkr_start: spkr_end], spkr_lst), article[spkr_end:]])
+        [spkr_normalize(article[spkr_start:spkr_end], spkr_lst), article[spkr_end:]]
+    )
+
+
+def jieba_cut(article):
+    out = []
+    for sent in split_sent(article):
+        sent = remove_unimportant(sent)
+        sent = remove_repeated(sent)
+        out.append(jieba.cut_for_search(sent))
+    return out
+
 
 def qa_preprocess(qa_file: str):
     with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -211,7 +229,7 @@ class risk_dataset(Dataset):
             article_id = risk_datum["article_id"]
             article = risk_datum["article"]
             label = risk_datum["label"]
-            diag = split_sent(article, configs['spkr'])
+            diag = split_sent(article, configs["spkr"])
             processed_datum = self.process_risk(diag, label)
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
@@ -231,3 +249,14 @@ class risk_dataset(Dataset):
 
     def collate_fn(self, data):
         return data
+
+
+if __name__ == "__main__":
+    import yaml
+
+    with open("configs.yaml", "r") as stream:
+        configs = yaml.safe_load(stream)
+
+    dataset = risk_dataset(configs, configs["risk_data"])
+    article = dataset[0]["article"]
+    print(jieba_cut(article))
