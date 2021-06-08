@@ -13,27 +13,56 @@ class PretrainModel(nn.Module):
         }.get(configs["model"], None)()
 
         self.tokenizer = {
-            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
+            "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese", additional_special_tokens = ['[' + spkr + ']' for spkr in configs['spkr']]),
             "Roberta": lambda: AutoTokenizer.from_pretrained(
-                "hfl/chinese-roberta-wwm-ext"
+                "hfl/chinese-roberta-wwm-ext", additional_special_tokens = ['[' + spkr + ']' for spkr in configs['spkr']]
             ),
         }.get(configs["model"], None)()
-        
-        if configs["freeze_bert"]:
-            for param in self.bert.parameters():
-                param.requires_grad = False
-        
-        self.cls = configs['cls']
-        self.max_doc_len = configs["max_document_len"]
+        self.bert.resize_token_embeddings(len(self.tokenizer))
 
-    def forward(self, raw_articles):
+        self.max_doc_len = configs["max_document_len"]
+        self.use_spkr_token = configs['use_spkr_token']
+    
+    @property
+    def output_size(self):
+        return self.bert.config.hidden_size
+
+    def forward(self, raw_articles, device, multi_sent=False):
+        if multi_sent:
+            return self.pros_multi_sent(raw_articles, device)
+        return self.pros_single_sent(raw_articles, device)
+
+    def pros_single_sent(self, raw_articles, device):
+        with torch.no_grad():
+            input_ids_lst = []
+            attention_mask_lst = []
+            for raw_article in raw_articles:
+                sent = ''.join(['[' + sent[0] + ']' + sent[1] if self.use_spkr_token else sent[1] for sent in raw_article])
+                tokenize_data = self.tokenizer(
+                    sent,
+                    padding="max_length",
+                    truncation=True,
+                    add_special_tokens=True,
+                    max_length=self.max_doc_len,
+                    return_tensors="pt",
+                )
+                input_ids_lst.append(tokenize_data["input_ids"])
+                attention_mask_lst.append(tokenize_data["attention_mask"])
+        outputs = self.bert(input_ids=torch.cat(input_ids_lst).to(device), attention_mask=torch.cat(attention_mask_lst).to(device))
+        cls_emb = outputs.last_hidden_state[:, 0, :]
+        mean_emb = outputs.last_hidden_state.mean(dim=1)
+        all_emb = outputs.hidden_states
+        return cls_emb, mean_emb, all_emb
+
+
+    def pros_multi_sent(self, raw_articles):
         with torch.no_grad():
             input_ids_lst = []
             attention_mask_lst = []
             sent_emb_list = []
             for raw_article in raw_articles:
                 tokenize_data = [self.tokenizer(
-                    sent[1],
+                     '[' + sent[0] + ']' + sent[1] if self.use_spkr_token else sent[1],
                     padding="max_length",
                     truncation=True,
                     add_special_tokens=True,
@@ -54,21 +83,3 @@ class PretrainModel(nn.Module):
                 sent_emb_list.append({'cls': cls_emb, 'mean': mean_emb, 'all': all_emb})
 
         return sent_emb_list
-
-# 下面只是 example
-
-import yaml
-with open("configs.yaml", "r") as stream:
-    configs = yaml.safe_load(stream)
-from dataset import risk_dataset
-from torch.utils.data import DataLoader
-
-train_dataset = risk_dataset(configs, configs["risk_data"])
-train_loader = DataLoader(
-        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=1, collate_fn=train_dataset.collate_fn
-    )
-bert = PretrainModel(configs)
-for data in train_loader:
-    sent_emb_list = bert([d['article'] for d in data][:1])
-    print(sent_emb_list[0]['cls'].shape)
-    break
