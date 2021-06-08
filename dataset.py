@@ -69,8 +69,9 @@ def jieba_cut(article):
     out = []
     for sent in split_sent(article):
         sent = remove_unimportant(sent)
-        sent = remove_repeated(sent)
-        out.append(jieba.cut_for_search(sent))
+        sent = remove_repeated(sent.upper())
+        sent = replace_mapping(sent)
+        out.append(list(jieba.cut_for_search(sent)))
     return out
 
 
@@ -231,6 +232,7 @@ class risk_dataset(Dataset):
             label = risk_datum["label"]
             diag = split_sent(article, configs["spkr"])
             processed_datum = self.process_risk(diag, label)
+            processed_datum["article"] = article
             processed_datum["article_id"] = article_id
             self.data.append(processed_datum)
 
@@ -258,5 +260,12 @@ if __name__ == "__main__":
         configs = yaml.safe_load(stream)
 
     dataset = risk_dataset(configs, configs["risk_data"])
-    article = dataset[0]["article"]
-    print(jieba_cut(article))
+    non_chinese = []
+    for datum in dataset:
+        article = datum["article"]
+        sent = remove_unimportant(article)
+        sent = remove_repeated(sent.upper())
+        print(get_non_chinese(sent, digit=False))
+        non_chinese.extend(get_non_chinese(sent, digit=False))
+        # print(list(jieba.cut_for_search(sent)))
+    print(set(non_chinese))

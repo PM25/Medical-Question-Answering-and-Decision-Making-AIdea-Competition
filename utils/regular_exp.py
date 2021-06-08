@@ -1,29 +1,11 @@
 import re
+import json
 
-punction_mapping = {
-    "······": "⋯",
-    "⋯⋯": "⋯",
-    "……": "⋯",
-    "～": ",",
-    ",。": "。",
-    ",?": "?",
-    ".。": "。",
-    "。。": "。",
-    "‧": ",",
-    "?......": "?",
-    "......?": "?",
-    "。......": "。",
-    "::": ":",
-    "......。": "。",
-    "~。": "。",
-    ",......": ",",
-    "。,": "。",
-    "⋯⋯'": "⋯",
-    "...?": "?",
-    "⋯⋯。": "。",
-    "⋯⋯?": "?",
-}
+with open("utils/mapping.json", "r") as f:
+    mapping = json.load(f)
 
+punction_mapping = mapping["punction"]
+english_mapping = mapping["english"]
 unimportant = ["···", "⋯", "…", "..."]
 
 
@@ -46,11 +28,19 @@ def get_repeated(text):
     return set([match.group() for match in matcher.finditer(text)])
 
 
+def replace_mapping(text):
+    for k, m in mapping.items():
+        # long terms first
+        for s1, s2 in sorted(list(m.items()), key=lambda x: len(x[0]), reverse=True):
+            if s1 == "HIV":
+                print(s1, s2, text)
+            text = text.replace(s1, s2)
+    return text
+
+
 def remove_unimportant(text):
     for t in unimportant:
         text = text.replace(t, "")
-    for p, t in punction_mapping.items():
-        text = text.replace(p, t)
     return text
 
 
@@ -66,3 +56,4 @@ def remove_repeated(text):
 if __name__ == "__main__":
     print(remove_unimportant(".。測試測試~。測試測試......?......"))
     print(remove_repeated("嗨嗨你好你好嗨嗨我是誰是的是得"))
+    print(replace_mapping("OKOK，IG好用，HIV要小心，NO"))
