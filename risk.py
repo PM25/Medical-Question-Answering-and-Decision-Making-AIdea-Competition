@@ -78,6 +78,7 @@ def train(model, train_loader, val_loader=None, configs=configs):
     return model
 
 
+@torch.no_grad()
 def evaluate(model, val_loader):
     model.eval()
     model.to(torch_device)
@@ -98,10 +99,12 @@ def evaluate(model, val_loader):
 
     val_loss = np.mean(val_loss)
     score = roc_auc_score(truth, all_preds) if len(truth) != 0 else np.nan
+    model.train()
 
     return val_loss, score
 
 
+@torch.no_grad()
 def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)

@@ -129,6 +129,7 @@ dmypy.json
 .pyre/
 
 data/
+!data/stopwords.txt
 Baseline/
 exp/
 .vscode/

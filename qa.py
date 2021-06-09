@@ -77,6 +77,7 @@ def train(model, train_loader, val_loader=None, configs=configs):
     return model
 
 
+@torch.no_grad()
 def evaluate(model, val_loader):
     model.eval()
     model.to(torch_device)
@@ -94,10 +95,12 @@ def evaluate(model, val_loader):
 
     val_acc = np.mean(val_acc)
     val_loss = np.mean(val_loss)
+    model.train()
 
     return val_loss, val_acc
 
 
+@torch.no_grad()
 def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)
