@@ -1,6 +1,7 @@
 import csv
 import yaml
 import jieba
+import random
 import numpy as np
 import jieba.analyse
 from pathlib import Path
@@ -11,8 +12,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import risk_dataset
+from utils.regexp import remove_repeated, remove_unimportant
 
 jieba.analyse.set_stop_words("data/stopwords.txt")
+random.seed(1009)
 
 with open("data/stopwords.txt", "r") as f:
     stop_words = [line.strip() for line in f.readlines()]
@@ -46,9 +49,17 @@ add_words = [
     "高一點",
     "因為",
     "藥物",
+    "睡前",
+    "有一點",
+    "個月",
+    "比較少",
+    "吃藥",
+    "食慾",
+    "類固醇",
+    "肝炎",
 ]
 
-break_words = ["的藥", "半年", "你現", "下禮", "阿因", "阿有", "藥還", "那個藥"]
+break_words = ["的藥", "半年", "你現", "下禮", "阿因", "阿有", "藥還", "那個藥", "藥有", "我剛"]
 
 
 for word in add_words:
@@ -64,6 +75,9 @@ special_words_mapping = {
     "菜花": "梅毒",
     "防H": "防毒",
     "U=U": "測不到毒量",
+    # "a肝": "肝炎",
+    # "b肝": "肝炎",
+    # "c肝": "肝炎",
 }
 
 
@@ -78,8 +92,10 @@ def process_data(dataset):
     answer = []
     article_id = []
     for datum in dataset:
-        article = replace_words(datum["article"])
-        sent_words = jieba.cut(article.lower())
+        article = replace_words(datum["article"].lower())
+        article = remove_unimportant(article)
+        article = remove_repeated(article)
+        sent_words = jieba.cut(article)
         sent = " ".join(sent_words)
         corpus.append(sent)
         answer.append(datum["label"].tolist())
@@ -163,19 +179,22 @@ with open("configs.yaml", "r") as stream:
 dataset = risk_dataset(configs, configs["risk_data"])
 corpus, answer, _ = process_data(dataset)
 
+# print(corpus)
 
-seeds = list(range(1, 50))
+print("[Testing with 50 different seeds]")
 train_scores, test_scores = [], []
-for seed in seeds:
+for _ in range(50):
+    seed = random.randint(1, 1000)
     train_score, test_score = train_and_evaluate(
         corpus, answer, MIN_DF, MAX_DF, seed=seed, val_size=val_size
     )
     train_scores.append(train_score)
     test_scores.append(test_score)
     print(
-        f"[seed={seed}] train score: {train_score:.3f} | test score: {test_score:.3f}"
+        f"[seed={seed:<3}] train score: {train_score:.3f} | test score: {test_score:.3f}"
     )
 
+print("=" * 25)
 print(f"average train: {np.mean(train_scores):.5f}")
 print(f"average test: {np.mean(test_scores):.5f}")
 
