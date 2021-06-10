@@ -80,6 +80,7 @@ def train(model, train_loader, val_loader=None, configs=configs):
     return model
 
 
+@torch.no_grad()
 def evaluate(model, val_loader):
     model.eval()
     with torch.no_grad():
@@ -99,6 +100,7 @@ def evaluate(model, val_loader):
     return val_loss, score
 
 
+@torch.no_grad()
 def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)
