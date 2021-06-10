@@ -8,20 +8,20 @@ from unicodedata import normalize
 from parsing import text_preprocessing
 import torch
 from torch.utils.data import Dataset, DataLoader
-import jieba
+
+# import jieba
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-def jieba_cut(article):
-    out = []
-    for sent in split_sent(article):
-        sent = text_preprocessing(sent)
-        # sent = remove_unimportant(sent)
-        # sent = remove_repeated(sent.upper())
-        # sent = replace_mapping(sent)
-        out.append(list(jieba.cut_for_search(sent)))
-    return out
+# def jieba_cut(article):
+#     out = []
+#     for sent in split_sent(article):
+#         sent = remove_unimportant(sent)
+#         sent = remove_repeated(sent.upper())
+#         sent = replace_mapping(sent)
+#         out.append(list(jieba.cut_for_search(sent)))
+#     return out
 
 
 def spkr_normalize(spkr: str, spkr_lst: list):
@@ -218,7 +218,7 @@ class qa_dataset(Dataset):
 class risk_dataset(Dataset):
     def __init__(self, configs, risk_file, test=True):
         super().__init__()
-        self.aug_mode = configs["aug_mode"]
+        self.aug_mode = None
         self.test = test
         self.data = []
         risk_data = risk_preprocess(risk_file)
@@ -258,33 +258,33 @@ class risk_dataset(Dataset):
         idx_med = random.choice([i for i in range(len(data)) if len(data[i][1]) > 10])
         if self.test:
             return (
-                self.backward_sample(data, idx_med, 255)
+                self.backward_sample(data, idx_med, 252)
                 + [data[idx_med]]
-                + self.forward_sample(data, idx_med, 255)
+                + self.forward_sample(data, idx_med, 252)
             )
         else:
             return (
-                self.backward_sample(data, idx_med, random.randint(200, 255))
+                self.backward_sample(data, idx_med, random.randint(200, 252))
                 + [data[idx_med]]
-                + self.forward_sample(data, idx_med, random.randint(200, 255))
+                + self.forward_sample(data, idx_med, random.randint(200, 252))
             )
 
     def last_sent_aug(self, data):
         idx_last = len(data) - 1
         if self.test:
-            return self.backward_sample(data, idx_last, 512) + [data[idx_last]]
+            return self.backward_sample(data, idx_last, 505) + [data[idx_last]]
         else:
-            return self.backward_sample(data, idx_last, random.randint(400, 512)) + [
+            return self.backward_sample(data, idx_last, random.randint(400, 505)) + [
                 data[idx_last]
             ]
 
     def first_sent_aug(self, data):
         idx_first = 0
         if self.test:
-            return [data[idx_first]] + self.forward_sample(data, idx_first, 512)
+            return [data[idx_first]] + self.forward_sample(data, idx_first, 505)
         else:
             return [data[idx_first]] + self.forward_sample(
-                data, idx_first, random.randint(400, 512)
+                data, idx_first, random.randint(400, 505)
             )
 
     def forward_sample(self, data, idx, thr):
@@ -312,7 +312,3 @@ class risk_dataset(Dataset):
 
     def collate_fn(self, data):
         return data
-
-
-# parsing
-# auc-roc
