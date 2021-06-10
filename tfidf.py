@@ -92,9 +92,8 @@ def process_data(dataset):
     answer = []
     article_id = []
     for datum in dataset:
-        article = replace_words(datum["article"].lower())
-        article = remove_unimportant(article)
-        article = remove_repeated(article)
+        article = " ".join([word for sent in datum["article"] for word in sent])
+        article = article.lower()
         sent_words = jieba.cut(article)
         sent = " ".join(sent_words)
         corpus.append(sent)
