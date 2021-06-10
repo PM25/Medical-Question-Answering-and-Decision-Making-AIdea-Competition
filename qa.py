@@ -11,7 +11,7 @@ from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup, logging
 
 from dataset import qa_dataset
-from model import QA_Model
+from model import get_qa_model
 from utils.setting import set_random_seed, get_device
 
 with open("configs.yaml", "r") as stream:
@@ -43,12 +43,12 @@ def train(model, train_loader, val_loader=None, configs=configs):
         avg_loss, train_loss = 0, 0
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
-            input_ids = batch["input_ids"].to(torch_device)
-            attention_mask = batch["attention_mask"].to(torch_device)
-            answer = batch["answer"].float().to(torch_device)
+            for key in list(batch.keys()):
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(torch_device)
 
             optimizer.zero_grad()
-            preds, loss = model(input_ids, attention_mask, answer)
+            preds, loss = model(**batch)
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -82,19 +82,21 @@ def evaluate(model, val_loader):
     model.to(torch_device)
 
     val_acc, val_loss = [], []
-    for step, batch in enumerate(val_loader):
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
-        answer = batch["answer"].float().to(torch_device)
+    with torch.no_grad():
+        for step, batch in enumerate(val_loader):
+            for key in list(batch.keys()):
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(torch_device)
 
-        preds, loss = model(input_ids, attention_mask, answer)
-        labels = torch.argmax(answer, dim=1)
-        val_acc.append((preds == labels).cpu().numpy().mean())
-        val_loss.append(loss.item())
+            preds, loss = model(**batch)
+            preds = torch.argmax(preds, dim=-1)
+            val_acc.append((preds == batch["answer"]).cpu().numpy().mean())
+            val_loss.append(loss.item())
 
     val_acc = np.mean(val_acc)
     val_loss = np.mean(val_loss)
 
+    model.train()
     return val_loss, val_acc
 
 
@@ -132,16 +134,19 @@ if __name__ == "__main__":
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(
-        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=4
+        train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=0,
+        collate_fn=qa_dataset.collate_fn,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=configs["batch_size"], num_workers=4
+        val_dataset, batch_size=configs["batch_size"], num_workers=4,
+        collate_fn=qa_dataset.collate_fn,
     )
 
-    qa_model = train(QA_Model(configs), train_loader, val_loader)
+    qa_model = train(get_qa_model(**configs), train_loader, val_loader)
 
     test_dataset = qa_dataset(configs, configs["dev_qa_data"])
     test_loader = DataLoader(
-        test_dataset, batch_size=configs["batch_size"], num_workers=4
+        test_dataset, batch_size=configs["batch_size"], num_workers=4,
+        collate_fn=qa_dataset.collate_fn,
     )
     save_preds(qa_model, test_loader)
