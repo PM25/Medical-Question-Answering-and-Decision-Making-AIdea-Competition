@@ -3,7 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from transformers.utils.dummy_pt_objects import LogitsProcessor
-from preprocessor import PretrainModel
+from .pretrained import PretrainModel
 
 
 def get_qa_model(configs):
@@ -13,14 +13,23 @@ def get_qa_model(configs):
 
 
 class RetrivalBinary(nn.Module):
-    def __init__(self, configs, **kwargs):
+    def __init__(self, pretrained_cfg, configs, **kwargs):
         super().__init__()
-        self.pretrained = PretrainModel(configs)
+        self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
+        self.predict = nn.Linear(self.pretrained.model.config.hidden_size, 1)
 
     def forward(self, role_with_article, question, choice, is_answer, **kwargs):
         device = is_answer.device
-        article_features = self.pretrained.pros_single_sent(role_with_article, device)[0]
-        return torch.zeros(len(role_with_article)), torch.zeros(1, requires_grad=True)
+        tokenizer = self.pretrained.tokenizer
+        sentences = []
+        for r, q, c in zip(role_with_article, question, choice):
+            sent = f"{tokenizer.cls_token}{''.join(['[' + sent[0] + ']' + sent[1] for sent in r])}{tokenizer.sep_token}{q}{tokenizer.sep_token}{c}{tokenizer.sep_token}"
+            sentences.append(sent)
+
+        article_features = self.pretrained(sentences, device)
+        logits = self.predict(article_features).squeeze(-1)
+        loss = F.binary_cross_entropy(F.sigmoid(logits), is_answer.float())
+        return logits, loss
 
 
 class ClsAttention(nn.Module):

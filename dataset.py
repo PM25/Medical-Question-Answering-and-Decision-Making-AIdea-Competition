@@ -187,7 +187,7 @@ class qa_binary_dataset(Dataset):
     
     def retrival(self, role_with_article, question_text, choice_text):
         #TODO
-        subset = role_with_article[:]
+        subset = role_with_article[:3]
         return subset
 
     def preprocess(self, qa_file: str):

@@ -6,20 +6,6 @@ import torch.nn.functional as F
 
 from transformers import BertModel, AutoModel, AutoTokenizer, BertTokenizer
 
-TOKENIZERS = {
-    "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-    "Roberta": lambda: AutoTokenizer.from_pretrained("hfl/chinese-roberta-wwm-ext"),
-}
-
-PRETRAINED_MODELS = {
-    "Bert": lambda: BertModel.from_pretrained(
-        "bert-base-chinese", output_hidden_states=True
-    ),
-    "Roberta": lambda: AutoModel.from_pretrained(
-        "hfl/chinese-roberta-wwm-ext", output_hidden_states=True
-    ),
-}
-
 
 class PretrainModel(nn.Module):
     def __init__(
@@ -28,20 +14,46 @@ class PretrainModel(nn.Module):
         trainable_from: int = -1,
         embedding_mode: str = "last_cls",
         max_tokens: int = 10000,
-        **kwargs
+        configs=None,
+        **kwargs,
     ):
         super().__init__()
         self.embedding_mode = embedding_mode  # last_cls, pooler_output, all_cls
         self.max_tokens = max_tokens
 
+        TOKENIZERS = {
+            "Bert": lambda: BertTokenizer.from_pretrained(
+                "ckiplab/bert-base-chinese",
+                additional_special_tokens=[
+                    "[" + spkr + "]" for spkr in configs["spkr"]
+                ],
+            ),
+            "Roberta": lambda: AutoTokenizer.from_pretrained(
+                "hfl/chinese-roberta-wwm-ext",
+                additional_special_tokens=[
+                    "[" + spkr + "]" for spkr in configs["spkr"]
+                ],
+            ),
+        }
+
+        PRETRAINED_MODELS = {
+            "Bert": lambda: BertModel.from_pretrained(
+                "bert-base-chinese", output_hidden_states=True
+            ),
+            "Roberta": lambda: AutoModel.from_pretrained(
+                "hfl/chinese-roberta-wwm-ext", output_hidden_states=True
+            ),
+        }
+
         self.tokenizer = TOKENIZERS[pretrained]()
         self.model = PRETRAINED_MODELS[pretrained]()
+        self.model.resize_token_embeddings(len(self.tokenizer))
 
         if self.embedding_mode == "all_cls":
             self.weights = nn.Parameter(
                 torch.zeros(self.model.config.num_hidden_layers + 1)
             )
-        
+
         trainable = False
         for name, para in self.model.named_parameters():
             if f"layer.{trainable_from}" in name:
@@ -58,6 +70,7 @@ class PretrainModel(nn.Module):
             padding="longest",
             return_tensors="pt",
             return_attention_mask=True,
+            add_special_tokens=False,
         )
         for key in list(tokenizer_result.keys()):
             if isinstance(tokenizer_result[key], torch.Tensor):
