@@ -98,6 +98,10 @@ class PretrainModel(nn.Module):
                 )
             elif self.embedding_mode == "pooler_output":
                 output = model_result.pooler_output
+            elif self.embedding_mode == "mean":
+                output = model_result.last_hidden_state.mean(dim=1)
+            else:
+                raise ValueError
 
             # output: (minibatch, hidden_size)
             outputs.append(output)

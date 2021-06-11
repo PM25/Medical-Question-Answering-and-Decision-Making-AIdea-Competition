@@ -1,3 +1,4 @@
+from os import sep
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -20,14 +21,15 @@ class RetrivalBinary(nn.Module):
     def forward(self, role_with_article, question, choice, is_answer, **kwargs):
         device = is_answer.device
         tokenizer = self.pretrained.tokenizer
+        cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
         sentences = []
         for r, q, c in zip(role_with_article, question, choice):
-            sent = f"{tokenizer.cls_token}{''.join(['[' + sent[0] + ']' + sent[1] for sent in r])}{tokenizer.sep_token}{q}{tokenizer.sep_token}{c}{tokenizer.sep_token}"
+            sent = f"{cls_token}{''.join(['[' + sent[0] + ']' + sent[1] for sent in r])}{sep_token}{q}{sep_token}{c}{sep_token}"
             sentences.append(sent)
 
         article_features = self.pretrained(sentences, device)
-        logits = self.predict(article_features).squeeze(-1)
-        loss = F.binary_cross_entropy(F.sigmoid(logits), is_answer.float())
+        logits = F.sigmoid(self.predict(article_features).squeeze(-1))
+        loss = F.binary_cross_entropy(logits, is_answer.float())
         return logits, loss
 
 
