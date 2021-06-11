@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
-from transformers.utils.dummy_pt_objects import LogitsProcessor
 from .pretrained import PretrainModel
 
 
@@ -33,9 +32,9 @@ class RetrivalBinary(nn.Module):
 
 
 class ClsAttention(nn.Module):
-    def __init__(self, pretrained_cfg, hidden_size=128, **kwargs):
+    def __init__(self, pretrained_cfg, hidden_size=128, configs=None, **kwargs):
         super().__init__()
-        self.pretrained = PretrainModel(**pretrained_cfg)
+        self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
 
         pretrained_size = self.pretrained.model.config.hidden_size
         self.key = nn.Linear(pretrained_size, hidden_size)
@@ -91,7 +90,7 @@ class ClsAttention(nn.Module):
         )
         # (batch_size, choices_num, hidden_size)
 
-        logtis = self.predict(attended_content + question_features).squeeze(-1)
+        logtis = self.predict(attended_content + query_features).squeeze(-1)
         # (batch_size, choices_num)
         return logtis
 
