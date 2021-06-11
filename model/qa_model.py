@@ -3,13 +3,24 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from transformers.utils.dummy_pt_objects import LogitsProcessor
-from .pretrained import PretrainModel
+from preprocessor import PretrainModel
 
 
-def get_qa_model(qa_model_cfg, **kwargs):
-    model_cls_name = qa_model_cfg["class"]
-    model_cfg = qa_model_cfg[model_cls_name]
-    return eval(model_cls_name)(**model_cfg)
+def get_qa_model(configs):
+    model_cls_name = configs["model_class"]
+    model_cfg = configs[model_cls_name]
+    return eval(model_cls_name)(**model_cfg, configs=configs)
+
+
+class RetrivalBinary(nn.Module):
+    def __init__(self, configs, **kwargs):
+        super().__init__()
+        self.pretrained = PretrainModel(configs)
+
+    def forward(self, role_with_article, question, choice, is_answer, **kwargs):
+        device = is_answer.device
+        article_features = self.pretrained.pros_single_sent(role_with_article, device)[0]
+        return torch.zeros(len(role_with_article)), torch.zeros(1, requires_grad=True)
 
 
 class ClsAttention(nn.Module):

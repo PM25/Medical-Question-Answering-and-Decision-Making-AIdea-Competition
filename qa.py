@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from transformers import get_linear_schedule_with_warmup, logging
 
-from dataset import qa_dataset
+from dataset import *
 from model import get_qa_model
 from utils.setting import set_random_seed, get_device
 
@@ -129,6 +129,7 @@ def save_preds(model, data_loader):
 
 
 if __name__ == "__main__":
+    qa_dataset = eval(configs["dataset_class"])
     dataset = qa_dataset(configs, configs["qa_data"])
 
     val_size = int(len(dataset) * configs["val_size"])
@@ -145,7 +146,7 @@ if __name__ == "__main__":
         collate_fn=qa_dataset.collate_fn,
     )
 
-    qa_model = train(get_qa_model(**configs), train_loader, val_loader)
+    qa_model = train(get_qa_model(configs), train_loader, val_loader)
 
     test_dataset = qa_dataset(configs, configs["dev_qa_data"])
     test_loader = DataLoader(

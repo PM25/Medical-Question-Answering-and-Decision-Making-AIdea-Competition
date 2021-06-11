@@ -176,6 +176,73 @@ class qa_dataset(Dataset):
         return batch
 
 
+class qa_binary_dataset(Dataset):
+    def __init__(self, configs, qa_file):
+        super().__init__()
+        self.configs = configs
+        self.data = self.preprocess(qa_file)
+
+    def __len__(self):
+        return len(self.data)
+    
+    def retrival(self, role_with_article, question_text, choice_text):
+        #TODO
+        subset = role_with_article[:]
+        return subset
+
+    def preprocess(self, qa_file: str):
+        with open(qa_file, "r", encoding="utf-8") as f_QA:
+            data = []
+            for datum in json.load(f_QA):
+                _id = datum["id"]
+                article = normalize("NFKC", datum["text"])
+                role, article = zip(*split_sent(article, self.configs["spkr"]))
+                role, article = sliding_window(role, article, **self.configs)
+                role, article = zip(*[(r, a) for r, a in zip(role, article) if len(a) > self.configs["min_sentence_len"]])
+
+                question = datum["question"]
+                question_text = normalize("NFKC", question["stem"])
+
+                answer = datum.get("answer", None)
+                if answer is not None:
+                    answer = normalize("NFKC", answer)
+
+                for choice_id, choice in enumerate(question["choices"]):
+                    choice_text = normalize("NFKC", choice["text"])
+
+                    is_answer = False
+                    label = normalize("NFKC", choice["label"])
+                    if label in answer or choice_text in answer:
+                        is_answer = True
+
+                    role_with_article = self.retrival(list(zip(role, article)), question_text, choice_text)
+
+                    data.append(
+                        {
+                            "role_with_article": role_with_article,
+                            "question": question_text,
+                            "choice": choice_text,
+                            "is_answer": is_answer,
+                        }
+                    )
+
+        return data
+
+    def __getitem__(self, idx: int):
+        return self.data[idx]
+
+    @staticmethod
+    def collate_fn(samples):
+        batch = defaultdict(list)
+        keys = samples[0].keys()
+        for sample in samples:
+            for key in keys:
+                batch[key].append(sample[key])
+        
+        batch["is_answer"] = torch.LongTensor(batch["is_answer"])
+        return batch
+
+
 class risk_dataset(Dataset):
     def __init__(self, configs, risk_file, test=True):
         super().__init__()

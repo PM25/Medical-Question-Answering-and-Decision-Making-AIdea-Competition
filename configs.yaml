@@ -19,6 +19,7 @@ val_size: 0.2
 log_step: 1
 
 # model
+model_class: RetrivalBinary
 model: Roberta
 hidden_dim: 256
 dropout: 0.2
@@ -27,20 +28,21 @@ latent_mode: cls
 activation: GELU
   
 # data processing
+dataset_class: qa_binary_dataset
 max_document_len: 512
 max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
 aug_mode: 'long'
 
-# qa
+# qa models
 min_sentence_len: 3
-qa_model_cfg:
-  class: ClsAttention
-  ClsAttention:
-    pretrained_cfg:
-      pretrained: Roberta
-      trainable_from: 11
-      embedding_mode: pooler_output
-      max_tokens: 10000
-    hidden_size: 128
+ClsAttention:
+  pretrained_cfg:
+    pretrained: Roberta
+    trainable_from: 11
+    embedding_mode: pooler_output
+    max_tokens: 10000
+  hidden_size: 128
+RetrivalBinary:
+  hidden_size: 128
