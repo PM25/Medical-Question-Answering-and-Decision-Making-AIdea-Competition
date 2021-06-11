@@ -6,12 +6,12 @@ dev_qa_data: data/Develop_QA.json
 dev_risk_data: data/Develop_risk_classification.csv
 
 # device
-device_id: 2 # cpu: -1, gpu: >= 0
+device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
 seed: 1126
 epochs: 10
-batch_size: 8
+batch_size: 1
 learning_rate: 0.0001
 warmup_steps: 20
 val_size: 0.2
@@ -32,3 +32,15 @@ max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
 aug_mode: 'long'
+
+# qa
+min_sentence_len: 3
+qa_model_cfg:
+  class: ClsAttention
+  ClsAttention:
+    pretrained_cfg:
+      pretrained: Roberta
+      trainable_from: 11
+      embedding_mode: pooler_output
+      max_tokens: 10000
+    hidden_size: 128

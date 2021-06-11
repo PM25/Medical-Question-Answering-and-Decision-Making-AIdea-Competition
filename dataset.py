@@ -5,6 +5,7 @@ import json
 import random
 import numpy as np
 from unicodedata import normalize
+from collections import defaultdict
 from parsing import text_preprocessing
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -70,42 +71,6 @@ def split_sent(article: str, spkr_lst: list):
     return diag_pro
 
 
-def qa_preprocess(qa_file: str):
-    with open(qa_file, "r", encoding="utf-8") as f_QA:
-        # One sample of QA
-        # [Question, [[Choice_1, Answer_1], [Choice_2, Answer_2], [Choice_3, Answer_3]]]
-        data = []
-        for datum in json.load(f_QA):
-            _id = datum["id"]
-            article = datum["text"]
-            question = datum["question"]
-            question_text = normalize("NFKC", question["stem"])
-
-            choices = []
-            answer = ""
-            for choice in question["choices"]:
-                text = normalize("NFKC", choice["text"])
-                label = normalize("NFKC", choice["label"])
-
-                if "answer" not in datum:
-                    choices.append([text, label, -1])
-                elif label in normalize("NFKC", datum["answer"]):
-                    choices.append([text, label, 1])
-                    answer = datum["answer"]
-                else:
-                    choices.append([text, label, 0])
-
-            data.append(
-                {
-                    "id": _id,
-                    "article": article,
-                    "question": question_text,
-                    "choices": choices,
-                }
-            )
-    return data
-
-
 def risk_preprocess(risk_file: str):
     with open(risk_file, "r", encoding="utf-8") as f_Risk:
         data = []
@@ -131,88 +96,84 @@ def risk_preprocess(risk_file: str):
     return data
 
 
+def sliding_window(role, article, max_characters=500, overlap_characters=100, **kwargs):
+    new_role = []
+    new_article = []
+    for r, a in zip(role, article):
+        remained = a
+        while len(remained) > max_characters:
+            new_role.append(r)
+            new_article.append(remained[:max_characters])
+            remained = remained[max_characters - overlap_characters:]
+        if len(remained) > 0:
+            new_role.append(r)
+            new_article.append(remained)
+    return new_role, new_article
+
 class qa_dataset(Dataset):
     def __init__(self, configs, qa_file):
         super().__init__()
-        self.max_doc_len = configs["max_document_len"]
-        self.max_q_len = configs["max_question_len"]
-        self.max_c_len = configs["max_choice_len"]
-        # self.tokenizer = {
-        #     "Bert": lambda: BertTokenizer.from_pretrained("bert-base-chinese"),
-        #     "Roberta": lambda: AutoTokenizer.from_pretrained(
-        #         "hfl/chinese-roberta-wwm-ext"
-        #     ),
-        # }.get(configs["model"], None)()
-
-        qa_data = qa_preprocess(qa_file)
-
-        self.data = []
-        for idx, qa_datum in enumerate(qa_data):
-            processed_datum = self.process_qa(
-                qa_datum["article"], qa_datum["question"], qa_datum["choices"]
-            )
-            processed_datum["id"] = qa_datum["id"]
-            processed_datum["article"] = qa_datum["article"]
-            processed_datum["question"] = qa_datum["question"]
-            self.data.append(processed_datum)
+        self.configs = configs
+        self.data = self.preprocess(qa_file)
 
     def __len__(self):
         return len(self.data)
 
+    def preprocess(self, qa_file: str):
+        with open(qa_file, "r", encoding="utf-8") as f_QA:
+            data = []
+            for datum in json.load(f_QA):
+                _id = datum["id"]
+                article = normalize("NFKC", datum["text"])
+                role, article = zip(*split_sent(article, self.configs["spkr"]))
+                role, article = sliding_window(role, article, **self.configs)
+                role, article = zip(*[(r, a) for r, a in zip(role, article) if len(a) > self.configs["min_sentence_len"]])
+
+                question = datum["question"]
+                question_text = normalize("NFKC", question["stem"])
+
+                answer = datum.get("answer", None)
+                if answer is not None:
+                    answer = normalize("NFKC", answer)
+
+                choices = []
+                answer_ids = []
+                for choice_id, choice in enumerate(question["choices"]):
+                    text = normalize("NFKC", choice["text"])
+                    choices.append(text)
+
+                    label = normalize("NFKC", choice["label"])
+                    if label in answer or text in answer:
+                        answer_ids.append(choice_id)
+
+                assert len(answer_ids) <= 1
+
+                data.append(
+                    {
+                        "qa_id": _id,
+                        "article": article,
+                        "role": role,
+                        "question": question_text,
+                        "choices": choices,
+                        "answer": answer_ids[0] if len(answer_ids) > 0 else -1,
+                    }
+                )
+        return data
+
     def __getitem__(self, idx: int):
         return self.data[idx]
 
-    def process_qa(self, raw_doc, raw_question, raw_choices):
-        out_datum = {
-            "choices": [],
-            "label": [],
-            "input_ids": [],
-            "attention_mask": [],
-            "answer": [],
-        }
+    @staticmethod
+    def collate_fn(samples):
+        batch = defaultdict(list)
+        keys = samples[0].keys()
+        for sample in samples:
+            for key in keys:
+                batch[key].append(sample[key])
 
-        for idx, choice_ans in enumerate(raw_choices):
-            raw_choice = "".join(choice_ans[0])
-            label = choice_ans[1]
-            answer = choice_ans[2]
-
-            max_input_len = self.max_doc_len + self.max_q_len + self.max_c_len
-            len_d, len_q, len_c = len(raw_doc), len(raw_question), len(raw_choice)
-            if len_d + len_q + len_c > max_input_len:
-                new_doc_len = max(max_input_len - len_q - len_c, self.max_doc_len)
-                trunc_document = raw_doc[:new_doc_len]
-                new_q_len = max(max_input_len - new_doc_len - len_c, self.max_q_len)
-                trunc_question = raw_question[:new_q_len]
-                choice_len = max(
-                    max_input_len - new_doc_len - new_q_len, self.max_c_len
-                )
-                trunc_choice = raw_choice[:choice_len]
-            else:
-                trunc_document = raw_doc
-                trunc_question = raw_question
-                trunc_choice = raw_choice
-
-            tokenize_data = self.tokenizer(
-                trunc_document,
-                trunc_question + trunc_choice,
-                padding="max_length",
-                truncation=True,
-                add_special_tokens=True,
-                max_length=max_input_len,
-                return_tensors="pt",
-            )
-
-            out_datum["choices"].append(trunc_choice)
-            out_datum["label"].append(label)
-            out_datum["input_ids"].append(tokenize_data["input_ids"])
-            out_datum["attention_mask"].append(tokenize_data["attention_mask"])
-            out_datum["answer"].append(answer)
-
-        out_datum["input_ids"] = torch.cat(out_datum["input_ids"])
-        out_datum["attention_mask"] = torch.cat(out_datum["attention_mask"])
-        out_datum["answer"] = torch.tensor(out_datum["answer"])
-
-        return out_datum
+        batch["qa_id"] = torch.LongTensor(batch["qa_id"])
+        batch["answer"] = torch.LongTensor(batch["answer"])
+        return batch
 
 
 class risk_dataset(Dataset):
