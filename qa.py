@@ -90,8 +90,8 @@ def evaluate(model, val_loader):
                     batch[key] = batch[key].to(torch_device)
 
             preds, loss = model(**batch)
-            preds = torch.argmax(preds, dim=-1)
-            val_acc.append((preds == batch["answer"]).cpu().numpy().mean())
+            preds = (preds > 0.5).bool()
+            val_acc.append((preds == batch["is_answer"]).cpu().numpy().mean())
             val_loss.append(loss.item())
 
     val_acc = np.mean(val_acc)

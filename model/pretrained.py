@@ -20,19 +20,16 @@ class PretrainModel(nn.Module):
         super().__init__()
         self.embedding_mode = embedding_mode  # last_cls, pooler_output, all_cls
         self.max_tokens = max_tokens
+        special_tokens = ["[" + spkr + "]" for spkr in configs["spkr"]]
 
         TOKENIZERS = {
             "Bert": lambda: BertTokenizer.from_pretrained(
                 "ckiplab/bert-base-chinese",
-                additional_special_tokens=[
-                    "[" + spkr + "]" for spkr in configs["spkr"]
-                ],
+                additional_special_tokens=special_tokens,
             ),
             "Roberta": lambda: AutoTokenizer.from_pretrained(
                 "hfl/chinese-roberta-wwm-ext",
-                additional_special_tokens=[
-                    "[" + spkr + "]" for spkr in configs["spkr"]
-                ],
+                additional_special_tokens=special_tokens,
             ),
         }
 

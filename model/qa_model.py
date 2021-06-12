@@ -18,13 +18,13 @@ class RetrivalBinary(nn.Module):
         self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
         self.predict = nn.Linear(self.pretrained.model.config.hidden_size, 1)
 
-    def forward(self, role_with_article, question, choice, is_answer, **kwargs):
+    def forward(self, article, question, choice, is_answer, **kwargs):
         device = is_answer.device
         tokenizer = self.pretrained.tokenizer
         cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
         sentences = []
-        for r, q, c in zip(role_with_article, question, choice):
-            sent = f"{cls_token}{''.join(['[' + sent[0] + ']' + sent[1] for sent in r])}{sep_token}{q}{sep_token}{c}{sep_token}"
+        for a, q, c in zip(article, question, choice):
+            sent = f"{cls_token}{a}{sep_token}{q}{sep_token}{c}{sep_token}"
             sentences.append(sent)
 
         article_features = self.pretrained(sentences, device)

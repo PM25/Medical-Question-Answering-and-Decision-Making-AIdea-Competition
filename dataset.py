@@ -4,6 +4,7 @@ import csv
 import json
 import random
 import numpy as np
+from tqdm import tqdm
 from unicodedata import normalize
 from collections import defaultdict
 from parsing import text_preprocessing
@@ -185,23 +186,50 @@ class qa_binary_dataset(Dataset):
     def __len__(self):
         return len(self.data)
     
-    def retrival(self, role_with_article, question_text, choice_text):
-        #TODO
-        subset = role_with_article[:3]
-        return subset
+    def retrival(self, role_and_dialogue, question_text, choice_text):
+        span_size = self.configs["span_size"]
+        max_context_size = self.configs["max_context_size"]
+
+        char_level_role = []
+        for r, d in role_and_dialogue:
+            char_level_role += [r] * len(d)
+        full_dialogue = "".join([d for _, d in role_and_dialogue])
+
+        context_range = torch.zeros(len(full_dialogue))
+        substrings = []
+        for length in reversed(range(1, len(choice_text))):
+            for start in range(len(choice_text) - length):
+                substrings.append(choice_text[start : start + length])
+
+        for substring in substrings:
+            for result in re.finditer(substring, full_dialogue):
+                if context_range.sum() + 2 * span_size < max_context_size:
+                    context_range[result.start() - span_size : result.end() + span_size] = 1
+
+        if context_range.sum() == 0:
+            return "不"
+
+        filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
+        current_role = filtered[0][0]
+        final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
+        for content in filtered[1:]:
+            role, char = content
+            if role != current_role:
+                current_role = role
+                final_article += f"[{role}]"
+            final_article += char
+        return final_article
 
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
             data = []
-            for datum in json.load(f_QA):
+            for datum in tqdm(json.load(f_QA)):
                 _id = datum["id"]
                 article = normalize("NFKC", datum["text"])
-                role, article = zip(*split_sent(article, self.configs["spkr"]))
-                role, article = sliding_window(role, article, **self.configs)
-                role, article = zip(*[(r, a) for r, a in zip(role, article) if len(a) > self.configs["min_sentence_len"]])
 
                 question = datum["question"]
                 question_text = normalize("NFKC", question["stem"])
+                question_text = text_preprocessing(question_text)
 
                 answer = datum.get("answer", None)
                 if answer is not None:
@@ -209,17 +237,19 @@ class qa_binary_dataset(Dataset):
 
                 for choice_id, choice in enumerate(question["choices"]):
                     choice_text = normalize("NFKC", choice["text"])
+                    choice_text = text_preprocessing(choice_text)
 
                     is_answer = False
                     label = normalize("NFKC", choice["label"])
                     if label in answer or choice_text in answer:
                         is_answer = True
 
-                    role_with_article = self.retrival(list(zip(role, article)), question_text, choice_text)
+                    role_and_dialogue = split_sent(article, self.configs["spkr"])
+                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text)
 
                     data.append(
                         {
-                            "role_with_article": role_with_article,
+                            "article": sub_article,
                             "question": question_text,
                             "choice": choice_text,
                             "is_answer": is_answer,

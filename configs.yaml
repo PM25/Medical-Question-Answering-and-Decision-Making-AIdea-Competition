@@ -34,9 +34,11 @@ max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
 aug_mode: 'long'
+span_size: 10
+max_context_size: 30
 
 # qa models
-min_sentence_len: 3
+min_sentence_len: 0
 ClsAttention:
   pretrained_cfg:
     pretrained: Roberta
@@ -45,4 +47,9 @@ ClsAttention:
     max_tokens: 10000
   hidden_size: 128
 RetrivalBinary:
+  pretrained_cfg:
+    pretrained: Bert
+    trainable_from: 0
+    embedding_mode: pooler_output
+    max_tokens: 10000
   hidden_size: 128
