@@ -101,7 +101,6 @@ def evaluate(model, val_loader):
     val_loss = np.mean(val_loss)
     model.train()
 
-    model.train()
     return val_loss, val_acc
 
 
