@@ -16,15 +16,58 @@ from torch.utils.data import Dataset, DataLoader
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-# def jieba_cut(article):
-#     out = []
-#     for sent in split_sent(article):
-#         sent = remove_unimportant(sent)
-#         sent = remove_repeated(sent.upper())
-#         sent = replace_mapping(sent)
-#         out.append(list(jieba.cut_for_search(sent)))
-#     return out
+def find_relevant_sent(key, diag):
+    idx_cand = []
+    for i in range(len(diag)):
+        spkr, sent = diag[i]
+        if key in sent:
+            idx_cand.append(i)
+    return idx_cand
 
+def expand_relevant_sent(idx_cand, diag):
+    idx_cand_exp = []
+    for i in idx_cand:
+        idx_cand_exp.append(max(i - 1, 0))
+        idx_cand_exp.append(i)
+        idx_cand_exp.append(min(i + 1, len(diag) - 1))
+    idx_cand_exp = sorted(list(set(idx_cand_exp)))
+    return idx_cand_exp
+
+def get_diag_subset(idx_cand_exp, diag):
+    spkr_pre = ''
+    ctx_pre = ''
+    diag_subset = []
+    for i in idx_cand_exp:
+        if diag[i][0] != spkr_pre or diag[i][1] != ctx_pre:
+            diag_subset.append([diag[i][0], diag[i][1]])
+        spkr_pre = diag[i][0]
+        ctx_pre = diag[i][1]
+    return diag_subset
+
+def count_word(diag):
+    count = 0
+    for i in range(len(diag)):
+        spkr, sent = diag[i]
+        count += (len(spkr) + len(sent) + 1)
+    return count
+
+def diag_prune(diag_subset, thr):
+    if len(diag_subset) > 1 and count_word(diag_subset) > thr:
+        diag_subset_prune = []
+        count = 0
+        for d in diag_subset:
+            spkr, sent = d
+            count += (len(spkr) + len(sent) + 1)
+            if count < 470:
+                diag_subset_prune.append(d)
+            else:
+                diag_subset = diag_subset_prune
+                break
+    elif len(diag_subset) == 1 and count_word(diag_subset) > thr:
+        spkr, sent = diag_subset[0]
+        sent = sent[:thr-2]
+        diag_subset[0] = spkr, sent
+    return diag_subset
 
 def spkr_normalize(spkr: str, spkr_lst: list):
     for spkr_std in spkr_lst:
@@ -182,43 +225,74 @@ class qa_binary_dataset(Dataset):
         super().__init__()
         self.configs = configs
         self.data = self.preprocess(qa_file)
+        self.term_count = {}
+        for line in open("data/df.txt", "r"):
+            term, count = line.strip().split(' ')
+            self.term_count[term] = count
 
     def __len__(self):
         return len(self.data)
     
-    def retrival(self, role_and_dialogue, question_text, choice_text):
-        span_size = self.configs["span_size"]
-        max_context_size = self.configs["max_context_size"]
+    # def retrival(self, role_and_dialogue, question_text, choice_text):
+    #     span_size = self.configs["span_size"]
+    #     max_context_size = self.configs["max_context_size"]
 
-        char_level_role = []
-        for r, d in role_and_dialogue:
-            char_level_role += [r] * len(d)
-        full_dialogue = "".join([d for _, d in role_and_dialogue])
+    #     char_level_role = []
+    #     for r, d in role_and_dialogue:
+    #         char_level_role += [r] * len(d)
+    #     full_dialogue = "".join([d for _, d in role_and_dialogue])
 
-        context_range = torch.zeros(len(full_dialogue))
+    #     context_range = torch.zeros(len(full_dialogue))
+    #     substrings = []
+    #     for length in reversed(range(1, len(choice_text))):
+    #         for start in range(len(choice_text) - length):
+    #             substrings.append(choice_text[start : start + length])
+
+    #     for substring in substrings:
+    #         for result in re.finditer(substring, full_dialogue):
+    #             if context_range.sum() + 2 * span_size < max_context_size:
+    #                 context_range[result.start() - span_size : result.end() + span_size] = 1
+
+    #     if context_range.sum() == 0:
+    #         return "不"
+
+    #     filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
+    #     current_role = filtered[0][0]
+    #     final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
+    #     for content in filtered[1:]:
+    #         role, char = content
+    #         if role != current_role:
+    #             current_role = role
+    #             final_article += f"[{role}]"
+    #         final_article += char
+    #     return final_article
+    def retrival(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+        idx_range = []
         substrings = []
         for length in reversed(range(1, len(choice_text))):
             for start in range(len(choice_text) - length):
-                substrings.append(choice_text[start : start + length])
+                term = choice_text[start : start + length]
+                if (not (term in self.term_count and self.term_count[term] > 1300)) or term == choice_text.replace('。', ''):
+                    substrings.append(term)
 
-        for substring in substrings:
-            for result in re.finditer(substring, full_dialogue):
-                if context_range.sum() + 2 * span_size < max_context_size:
-                    context_range[result.start() - span_size : result.end() + span_size] = 1
+            for term in substrings:
+                idx_range += find_relevant_sent(term, role_and_dialogue)
+            
+            if len(idx_range) > 0 and length <= 3:
+                idx_range = expand_relevant_sent(idx_range, role_and_dialogue)
+                break
 
-        if context_range.sum() == 0:
-            return "不"
-
-        filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
-        current_role = filtered[0][0]
-        final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
-        for content in filtered[1:]:
-            role, char = content
-            if role != current_role:
-                current_role = role
-                final_article += f"[{role}]"
-            final_article += char
-        return final_article
+        diag_subset = get_diag_subset(idx_range, role_and_dialogue)
+        thr = 502 - len(question_text) - len(choice_text)
+        diag_subset = diag_prune(diag_subset, thr)
+        if spkr_mode is None:
+            return ''.join([d[1] for d in diag_subset])
+        
+        elif spkr_mode == 'token':
+            return ''.join([f'[{d[0]}]{d[1]}' for d in diag_subset])
+        
+        elif spkr_mode == 'content':
+            return ''.join([f'{d[0]}：{d[1]}' for d in diag_subset])
 
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -248,7 +322,7 @@ class qa_binary_dataset(Dataset):
                         is_answer = None
 
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
-                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text)
+                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text, self.configs["spkr_mode"])
 
                     data.append(
                         {

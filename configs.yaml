@@ -39,6 +39,7 @@ max_context_size: 30
 
 # qa models
 min_sentence_len: 0
+spkr_mode: 'token' # can be None, 'content', 'token'
 ClsAttention:
   pretrained_cfg:
     pretrained: Roberta
