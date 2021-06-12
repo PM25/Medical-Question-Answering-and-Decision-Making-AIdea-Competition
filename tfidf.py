@@ -4,22 +4,43 @@ import jieba
 import random
 import numpy as np
 import jieba.analyse
+from tqdm import tqdm
 from pathlib import Path
 from sklearn.metrics import roc_auc_score
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.experimental import enable_hist_gradient_boosting
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.experimental import enable_hist_gradient_boosting
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-from dataset import risk_dataset
 
-# from utils.regexp import remove_repeated, remove_unimportant
+from dataset import risk_dataset
+from utils.setting import set_random_seed
+
+with open("configs.yaml", "r") as stream:
+    configs = yaml.safe_load(stream)
+    configs["aug_mode"] = None
 
 jieba.analyse.set_stop_words("data/stopwords.txt")
-random.seed(1009)
+seed = configs["seed"]
+set_random_seed(seed)
+
+MIN_DF = 0.1  # 0.155
+MAX_DF = 0.8  # 0.72
+
+
+models = {
+    # "LogisticRegression": lambda: LogisticRegression(random_state=seed),
+    "RandomForestClassifier": lambda: RandomForestClassifier(random_state=seed),
+    "HistGradientBoostingClassifier": lambda: HistGradientBoostingClassifier(
+        random_state=seed
+    ),
+    "SVC": lambda: SVC(probability=True, random_state=seed),
+    # "MLPClassifier": lambda: MLPClassifier(early_stopping=True, random_state=seed),
+}
+
 
 with open("data/stopwords.txt", "r") as f:
     stop_words = [line.strip() for line in f.readlines()]
@@ -61,9 +82,27 @@ add_words = [
     "食慾",
     "類固醇",
     "肝炎",
+    "這樣",
+    "任務型",
+    "接下來",
 ]
 
-break_words = ["的藥", "半年", "你現", "下禮", "阿因", "阿有", "藥還", "那個藥", "藥有", "我剛"]
+break_words = [
+    "的藥",
+    "半年",
+    "你現",
+    "下禮",
+    "阿因",
+    "阿有",
+    "藥還",
+    "那個藥",
+    "藥有",
+    "我剛",
+    "樣我",
+    "候會",
+    "務型",
+    "們有",
+]
 
 
 for word in add_words:
@@ -85,19 +124,20 @@ special_words_mapping = {
 }
 
 
-def add_catgorical_feat(corpus):
-    key_term = []
-    for line in open("data/pos_key.txt", "r"):
-        key_term.append(line.strip())
-    for line in open("data/neg_key.txt", "r"):
-        key_term.append(line.strip())
+def get_catgorical_feat(corpus):
+    with open("data/pos_key.txt", "r") as f:
+        key_term = [line.strip() for line in f.readlines()]
 
-    catgorical_feat = np.zeros((len(corpus), len(key_term)))
+    with open("data/neg_key.txt", "r") as f:
+        key_term.extend([line.strip() for line in f.readlines()])
+
+    cat_feat = np.zeros((len(corpus), len(key_term)))
     for i in range(len(corpus)):
         for j in range(len(key_term)):
             if key_term[j] in corpus[i]:
-                catgorical_feat[i, j] = 1.0
-    return catgorical_feat
+                cat_feat[i, j] = 1.0
+
+    return cat_feat
 
 
 def replace_words(text):
@@ -121,7 +161,7 @@ def process_data(dataset):
     return corpus, answer, article_id
 
 
-def train_and_evaluate(corpus, answer, min_df=0.1, max_df=0.7, seed=1009, val_size=0.2):
+def train_and_evaluate(corpus, answer, min_df=0.1, max_df=0.8, seed=1009, val_size=0.2):
     if val_size > 0:
         train_x, test_x, train_y, test_y = train_test_split(
             corpus.copy(), answer.copy(), test_size=val_size, random_state=seed
@@ -130,18 +170,20 @@ def train_and_evaluate(corpus, answer, min_df=0.1, max_df=0.7, seed=1009, val_si
         train_x = corpus.copy()
         train_y = answer.copy()
 
-    tfidf_vec, (clf1, clf2, clf3) = train(train_x, train_y, min_df, max_df)
+    clfs, tfidf_vec = train(train_x, train_y, min_df, max_df)
 
-    train_score = evaluate(tfidf_vec, (clf1, clf2, clf3), train_x, train_y)
+    probs = predict_prob(clfs, tfidf_vec, train_x)
+    train_score = roc_auc_score(train_y, probs)
 
     if val_size > 0:
-        test_score = evaluate(tfidf_vec, (clf1, clf2, clf3), test_x, test_y)
-        return train_score, test_score, (clf1, clf2, clf3), tfidf_vec
+        probs = predict_prob(clfs, tfidf_vec, test_x)
+        val_score = roc_auc_score(test_y, probs)
+        return clfs, (train_score, val_score)
     else:
-        return train_score
+        return clfs, (train_score)
 
 
-def train(corpus, answer, min_df=0.1, max_df=0.7, show=False):
+def train(corpus, answer, min_df=0.1, max_df=0.8):
     tfidf_vec = TfidfVectorizer(
         token_pattern=r"(?u)\b\w+\b",
         stop_words=stop_words,
@@ -149,54 +191,38 @@ def train(corpus, answer, min_df=0.1, max_df=0.7, show=False):
         max_df=max_df,
     )
     tfidf_vec.fit(corpus)
-    train_x = tfidf_vec.transform(corpus)
-    cat_feat = add_catgorical_feat(corpus)
-    train_x = np.concatenate((train_x.todense(), cat_feat), 1)
+
+    tfidf_x = tfidf_vec.transform(corpus)
+    cat_feat = get_catgorical_feat(corpus)
+    train_x = np.concatenate((tfidf_x.todense(), cat_feat), 1)
 
     train_y = answer.copy()
 
-    clf1 = LogisticRegression().fit(train_x, train_y)
-    clf2 = RandomForestClassifier().fit(train_x, train_y)
-    clf3 = HistGradientBoostingClassifier().fit(train_x, train_y)
+    clfs = []
+    for name, model in models.items():
+        clf = model().fit(train_x, train_y)
+        clfs.append(clf)
 
-    # weight = list(tfidf_vec.vocabulary_.items())
-    # for i in range(len(weight)):
-    #     weight[i] = (weight[i][0], round(clf.coef_[0][weight[i][1]], 2))
-
-    if show:
-        # print(sorted(weight, key=lambda i: i[1], reverse=True))
-        pass
-        # for w in weight:
-        #     print(w[0])
-    return tfidf_vec, (clf1, clf2, clf3)
+    return clfs, tfidf_vec
 
 
-def evaluate(tfidf_vec, classifier, corpus, answer):
-    val_x = tfidf_vec.transform(corpus)
-    cat_feat = add_catgorical_feat(corpus)
-    val_x = np.concatenate((val_x.todense(), cat_feat), 1)
+def predict_prob(classifiers, tfidf_vec, corpus):
+    tfidf_x = tfidf_vec.transform(corpus)
+    cat_feat = get_catgorical_feat(corpus)
+    data_x = np.concatenate((tfidf_x.todense(), cat_feat), 1)
 
-    val_y = answer.copy()
-    prob = (
-        classifier[0].predict_proba(val_x)[:, 1]
-        + classifier[1].predict_proba(val_x)[:, 1]
-        + classifier[2].predict_proba(val_x)[:, 1]
-    ) / 3
+    probs = []
+    for clf in classifiers:
+        prob = clf.predict_proba(data_x)[:, 1]
+        probs.append(prob)
 
-    return roc_auc_score(val_y, prob)
+    probs = np.array(probs)
+    probs = np.mean(probs, axis=0)
+
+    return probs
 
 
-def predict(tfidf_vec, clf, test_data, article_id):
-    test_x = tfidf_vec.transform(test_data)
-    cat_feat = add_catgorical_feat(test_data)
-    test_x = np.concatenate((test_x.todense(), cat_feat), 1)
-
-    probs = (
-        clf[0].predict_proba(test_x)[:, 1]
-        + clf[1].predict_proba(test_x)[:, 1]
-        + clf[2].predict_proba(test_x)[:, 1]
-    ) / 3
-
+def save_predict(probs, article_id):
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/decision.csv", "w") as f:
         csvwriter = csv.writer(f, delimiter=",")
@@ -208,44 +234,31 @@ def predict(tfidf_vec, clf, test_data, article_id):
     print("*Successfully saved prediction to output/decision.csv")
 
 
-MIN_DF = 0.1  # 0.155
-MAX_DF = 0.8  # 0.72
-val_size = 0.2
+if __name__ == "__main__":
+    dataset = risk_dataset(configs, configs["risk_data"])
+    corpus, answer, _ = process_data(dataset)
 
-with open("configs.yaml", "r") as stream:
-    configs = yaml.safe_load(stream)
-configs["aug_mode"] = None
-dataset = risk_dataset(configs, configs["risk_data"])
-corpus, answer, _ = process_data(dataset)
-corpus_all, answer_all, _ = process_data(dataset)
-
-for _ in range(100):
-    seed = random.randint(1, 1000)
-    corpus, final_test_corpus, answer, final_test_answer = train_test_split(
-        corpus_all.copy(), answer_all.copy(), test_size=0.1, random_state=seed
-    )
     print("[Testing with 50 different seeds]")
-    train_scores, test_scores = [], []
+    train_scores, val_scores = [], []
+    for _ in range(50):
+        seed = random.randint(1, 1000)
+        clfs, (train_score, val_score) = train_and_evaluate(
+            corpus, answer, MIN_DF, MAX_DF, seed=seed, val_size=configs["val_size"]
+        )
+        train_scores.append(train_score)
+        val_scores.append(val_score)
+        print(
+            f"[seed={seed:<3}] train score: {train_score:.3f} | test score: {val_score:.3f}"
+        )
 
-all_model = []
-for _ in range(50):
-    seed = random.randint(1, 1000)
-    train_score, test_score, clf, tfidf = train_and_evaluate(
-        corpus, answer, MIN_DF, MAX_DF, seed=seed, val_size=val_size
-    )
-    all_model.append([tfidf, clf])
-    train_scores.append(train_score)
-    test_scores.append(test_score)
-    print(
-        f"[seed={seed:<3}] train score: {train_score:.3f} | test score: {test_score:.3f}"
-    )
+    print("=" * 25)
+    print(f"average train score: {np.mean(train_scores):.5f}")
+    print(f"average val score: {np.mean(val_scores):.5f}")
 
-print("=" * 25)
-print(f"average train: {np.mean(train_scores):.5f}")
-print(f"average test: {np.mean(test_scores):.5f}")
+    clfs, tfidf_vec = train(corpus, answer, MIN_DF, MAX_DF)
 
-tfidf_vec, (clf1, clf2, clf3) = train(corpus, answer, MIN_DF, MAX_DF)
+    test_dataset = risk_dataset(configs, configs["dev_risk_data"])
+    test_corpus, _, article_id = process_data(test_dataset)
 
-test_dataset = risk_dataset(configs, configs["dev_risk_data"])
-test_corpus, _, article_id = process_data(test_dataset)
-predict(tfidf_vec, (clf1, clf2, clf3), test_corpus, article_id)
+    probs = predict_prob(clfs, tfidf_vec, test_corpus)
+    save_predict(probs, article_id)
