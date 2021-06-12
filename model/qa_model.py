@@ -1,3 +1,4 @@
+from logging import log
 from os import sep
 import torch
 from torch import nn
@@ -18,19 +19,28 @@ class RetrivalBinary(nn.Module):
         self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
         self.predict = nn.Linear(self.pretrained.model.config.hidden_size, 1)
 
-    def forward(self, article, question, choice, is_answer, **kwargs):
+    def infer(self, **kwargs):
+        logits = self._forward(**kwargs)
+        return (logits > 0.5).long()
+
+    def forward(self, is_answer, **kwargs):
+        logits = self._forward(**kwargs, is_answer=is_answer)
+        loss = F.binary_cross_entropy(logits, is_answer.float())
+        acc = ((logits > 0.5).long() == is_answer).long().cpu().tolist()
+        return acc, loss
+
+    def _forward(self, article, question, choice, is_answer, **kwargs):
         device = is_answer.device
         tokenizer = self.pretrained.tokenizer
         cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
         sentences = []
-        for a, q, c in zip(article, question, choice):
+        for a, q, c, i in zip(article, question, choice, is_answer):
             sent = f"{cls_token}{a}{sep_token}{q}{sep_token}{c}{sep_token}"
             sentences.append(sent)
 
         article_features = self.pretrained(sentences, device)
         logits = F.sigmoid(self.predict(article_features).squeeze(-1))
-        loss = F.binary_cross_entropy(logits, is_answer.float())
-        return logits, loss
+        return logits
 
 
 class ClsAttention(nn.Module):
@@ -87,9 +97,9 @@ class ClsAttention(nn.Module):
         ).long() * -10000000000
         matching_score += attention_mask.unsqueeze(1).to(qa_id.device)
         attention = matching_score.softmax(dim=-1)
-        attended_content = (attention.unsqueeze(-1) * article_features.unsqueeze(1)).sum(
-            dim=2
-        )
+        attended_content = (
+            attention.unsqueeze(-1) * article_features.unsqueeze(1)
+        ).sum(dim=2)
         # (batch_size, choices_num, hidden_size)
 
         logtis = self.predict(attended_content + query_features).squeeze(-1)

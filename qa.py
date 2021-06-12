@@ -40,7 +40,8 @@ def train(model, train_loader, val_loader=None, configs=configs):
     writer = SummaryWriter()
 
     for epoch in range(configs["epochs"]):
-        avg_loss, train_loss = 0, 0
+        avg_loss, train_loss, train_acc = 0, 0, []
+
         tqdm_train_loader = tqdm(train_loader)
         for step, batch in enumerate(tqdm_train_loader, 1):
             for key in list(batch.keys()):
@@ -48,22 +49,25 @@ def train(model, train_loader, val_loader=None, configs=configs):
                     batch[key] = batch[key].to(torch_device)
 
             optimizer.zero_grad()
-            preds, loss = model(**batch)
+            acc, loss = model(**batch)
             loss.backward()
             optimizer.step()
             scheduler.step()
 
             avg_loss += loss.item()
             train_loss += loss.item()
+            train_acc += acc
 
             if val_loader is not None and step == len(train_loader):
                 val_loss, val_acc = evaluate(model, val_loader)
                 train_loss /= len(train_loader)
+                train_acc = np.mean(train_acc)
                 tqdm_train_loader.set_description(
-                    f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f}",
+                    f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f}",
                 )
                 writer.add_scalar("QA_Accuracy/valalidation", val_acc, epoch)
                 writer.add_scalar("QA_Loss/validation", val_loss, epoch)
+                writer.add_scalar("QA_Accuracy/train", train_acc, epoch)
                 writer.add_scalar("QA_Loss/train", train_loss, epoch)
 
             elif step % configs["log_step"] == 0:
@@ -89,9 +93,8 @@ def evaluate(model, val_loader):
                 if isinstance(batch[key], torch.Tensor):
                     batch[key] = batch[key].to(torch_device)
 
-            preds, loss = model(**batch)
-            preds = (preds > 0.5).bool()
-            val_acc.append((preds == batch["is_answer"]).cpu().numpy().mean())
+            acc, loss = model(**batch)
+            val_acc += acc
             val_loss.append(loss.item())
 
     val_acc = np.mean(val_acc)
@@ -109,13 +112,12 @@ def save_preds(model, data_loader):
 
     all_preds = []
     for step, batch in enumerate(data_loader):
-        _id = batch["id"]
-        labels = batch["label"]
-        input_ids = batch["input_ids"].to(torch_device)
-        attention_mask = batch["attention_mask"].to(torch_device)
+        for key in list(batch.keys()):
+            if isinstance(batch[key], torch.Tensor):
+                batch[key] = batch[key].to(torch_device)
 
-        preds = model.pred_label(input_ids, attention_mask, labels)
-        all_preds.extend(list(zip(_id.tolist(), preds)))
+        pred = model.infer(**batch)
+        all_preds.append(pred)
 
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/qa.csv", "w") as f:

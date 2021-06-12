@@ -239,16 +239,20 @@ class qa_binary_dataset(Dataset):
                     choice_text = normalize("NFKC", choice["text"])
                     choice_text = text_preprocessing(choice_text)
 
-                    is_answer = False
-                    label = normalize("NFKC", choice["label"])
-                    if label in answer or choice_text in answer:
-                        is_answer = True
+                    if answer is not None:
+                        is_answer = False
+                        label = normalize("NFKC", choice["label"])
+                        if label in answer or choice_text in answer:
+                            is_answer = True
+                    else:
+                        is_answer = None
 
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
                     sub_article = self.retrival(role_and_dialogue, question_text, choice_text)
 
                     data.append(
                         {
+                            "qa_id": _id,
                             "article": sub_article,
                             "question": question_text,
                             "choice": choice_text,
@@ -269,7 +273,8 @@ class qa_binary_dataset(Dataset):
             for key in keys:
                 batch[key].append(sample[key])
         
-        batch["is_answer"] = torch.LongTensor(batch["is_answer"])
+        if batch["is_answer"] is not None:
+            batch["is_answer"] = torch.LongTensor(batch["is_answer"])
         return batch
 
 
