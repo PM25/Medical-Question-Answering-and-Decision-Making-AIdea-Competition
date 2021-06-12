@@ -49,7 +49,7 @@ def train(model, train_loader, val_loader=None, configs=configs):
                     batch[key] = batch[key].to(torch_device)
 
             optimizer.zero_grad()
-            acc, loss = model(**batch)
+            logits, acc, loss = model(**batch)
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -87,17 +87,36 @@ def evaluate(model, val_loader):
     model.to(torch_device)
 
     val_acc, val_loss = [], []
+    qa_ids, logits, is_answers = [], [], []
     with torch.no_grad():
         for step, batch in enumerate(val_loader):
             for key in list(batch.keys()):
                 if isinstance(batch[key], torch.Tensor):
                     batch[key] = batch[key].to(torch_device)
 
-            acc, loss = model(**batch)
+            logit, acc, loss = model(**batch)
             val_acc += acc
             val_loss.append(loss.item())
 
-    val_acc = np.mean(val_acc)
+            logits += logit
+            qa_ids += batch["qa_id"]
+            is_answers += batch["is_answer"].cpu().tolist()
+
+    final_predict = defaultdict(list)
+    final_answer = dict()
+    for qa_id, logit, is_answer in zip(qa_ids, logits, is_answers):
+        final_predict[qa_id].append(logit)
+        if is_answer:
+            final_answer[qa_id] = len(final_predict[qa_id]) - 1
+
+    final_acc = []
+    for qa_id in final_predict.keys():
+        if final_answer[qa_id] == torch.tensor(final_predict[qa_id]).argmax().item():
+            final_acc.append(1)
+        else:
+            final_acc.append(0)
+
+    val_acc = np.mean(final_acc)
     val_loss = np.mean(val_loss)
     model.train()
 
@@ -109,14 +128,32 @@ def save_preds(model, data_loader):
     model.eval()
     model.to(torch_device)
 
-    all_preds = []
+    qa_ids, logits, labels = [], [], []
     for step, batch in enumerate(data_loader):
         for key in list(batch.keys()):
             if isinstance(batch[key], torch.Tensor):
                 batch[key] = batch[key].to(torch_device)
 
-        pred = model.infer(**batch)
-        all_preds.append(pred)
+        logit = model.infer(**batch)
+        logits += logit
+        qa_ids += batch["qa_id"]
+        labels += batch["label"]
+
+    final_predict = defaultdict(list)
+    for qa_id, logit, label in zip(qa_ids, logits, labels):
+        final_predict[qa_id].append((logit, label))
+
+    final_answer = dict()
+    for qa_id in final_predict.keys():
+        assert len(final_predict[qa_id]) == 3
+        logits, labels = zip(*final_predict[qa_id])
+        best_id = torch.tensor(logits).argmax().item()
+        answer = labels[best_id]
+        final_answer[qa_id] = answer
+
+    all_preds = []
+    for i in sorted(final_answer.keys()):
+        all_preds.append((i, final_answer[i]))
 
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/qa.csv", "w") as f:
@@ -131,12 +168,13 @@ def save_preds(model, data_loader):
 
 if __name__ == "__main__":
     qa_dataset = eval(configs["dataset_class"])
-    dataset = qa_dataset(configs, configs["qa_data"])
+    train_dataset = qa_dataset(configs, configs["qa_data"], training=True)
+    val_dataset = qa_dataset(configs, configs["qa_data"], training=False)
 
-    val_size = int(len(dataset) * configs["val_size"])
-    train_size = len(dataset) - val_size
+    # val_size = int(len(dataset) * configs["val_size"])
+    # train_size = len(dataset) - val_size
 
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(
         train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=0,

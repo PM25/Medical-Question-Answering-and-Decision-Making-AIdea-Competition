@@ -21,13 +21,13 @@ class RetrivalBinary(nn.Module):
 
     def infer(self, **kwargs):
         logits = self._forward(**kwargs)
-        return (logits > 0.5).long()
+        return logits.cpu().tolist()
 
     def forward(self, is_answer, **kwargs):
         logits = self._forward(**kwargs, is_answer=is_answer)
         loss = F.binary_cross_entropy(logits, is_answer.float())
         acc = ((logits > 0.5).long() == is_answer).long().cpu().tolist()
-        return acc, loss
+        return logits.cpu().tolist(), acc, loss
 
     def _forward(self, article, question, choice, is_answer, **kwargs):
         device = is_answer.device

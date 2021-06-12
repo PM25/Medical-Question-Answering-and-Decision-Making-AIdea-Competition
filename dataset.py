@@ -178,8 +178,9 @@ class qa_dataset(Dataset):
 
 
 class qa_binary_dataset(Dataset):
-    def __init__(self, configs, qa_file):
+    def __init__(self, configs, qa_file, training=None):
         super().__init__()
+        self.training = training
         self.configs = configs
         self.data = self.preprocess(qa_file)
 
@@ -223,7 +224,16 @@ class qa_binary_dataset(Dataset):
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
             data = []
-            for datum in tqdm(json.load(f_QA)):
+            datums = list(json.load(f_QA))
+
+            if self.training is not None:
+                sampled = random.choices(datums, k=int(len(datums) * 0.2))
+                if self.training:
+                    datums = [d for d in datums if d not in sampled]
+                else:
+                    datums = sampled
+
+            for datum in tqdm(datums):
                 _id = datum["id"]
                 article = normalize("NFKC", datum["text"])
 
@@ -235,15 +245,16 @@ class qa_binary_dataset(Dataset):
                 if answer is not None:
                     answer = normalize("NFKC", answer)
 
+                has_answer = False
                 for choice_id, choice in enumerate(question["choices"]):
                     choice_text = normalize("NFKC", choice["text"])
-                    choice_text = text_preprocessing(choice_text)
+                    label = normalize("NFKC", choice["label"])
 
                     if answer is not None:
                         is_answer = False
-                        label = normalize("NFKC", choice["label"])
                         if label in answer or choice_text in answer:
                             is_answer = True
+                            has_answer = True
                     else:
                         is_answer = None
 
@@ -256,9 +267,11 @@ class qa_binary_dataset(Dataset):
                             "article": sub_article,
                             "question": question_text,
                             "choice": choice_text,
-                            "is_answer": is_answer,
+                            "is_answer": is_answer if is_answer is not None else 0,
+                            "label": label,
                         }
                     )
+                assert answer is None or has_answer
 
         return data
 
@@ -273,8 +286,7 @@ class qa_binary_dataset(Dataset):
             for key in keys:
                 batch[key].append(sample[key])
         
-        if batch["is_answer"] is not None:
-            batch["is_answer"] = torch.LongTensor(batch["is_answer"])
+        batch["is_answer"] = torch.LongTensor(batch["is_answer"])
         return batch
 
 
