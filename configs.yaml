@@ -10,8 +10,8 @@ device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
 seed: 1126
-epochs: 20
-batch_size: 10
+epochs: 30
+batch_size: 20
 learning_rate: 0.0001
 warmup_steps: 1000
 val_size: 0.2
@@ -19,7 +19,7 @@ val_size: 0.2
 log_step: 1
 
 # model
-model_class: RetrivalBinary
+model_class: RetrivalMultiple
 model: Roberta
 hidden_dim: 256
 dropout: 0.2
@@ -28,14 +28,14 @@ latent_mode: cls
 activation: GELU
   
 # data processing
-dataset_class: qa_binary_dataset
+dataset_class: qa_multiple_dataset
 max_document_len: 512
 max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
 aug_mode: 'long'
 span_size: 15
-max_context_size: 50
+max_context_size: 100
 
 # qa models
 min_sentence_len: 0
@@ -52,4 +52,9 @@ RetrivalBinary:
     trainable_from: 0
     embedding_mode: pooler_output
     max_tokens: 10000
-  hidden_size: 128
+RetrivalMultiple:
+  pretrained_cfg:
+    pretrained: Roberta
+    trainable_from: 0
+    embedding_mode: pooler_output
+    max_tokens: 10000

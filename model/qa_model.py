@@ -43,6 +43,39 @@ class RetrivalBinary(nn.Module):
         return logits
 
 
+class RetrivalMultiple(nn.Module):
+    def __init__(self, pretrained_cfg, configs, **kwargs):
+        super().__init__()
+        self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
+        self.predict = nn.Linear(self.pretrained.model.config.hidden_size, 1)
+
+    def infer(self, **kwargs):
+        logits = self._forward(**kwargs)
+        logits = logits.view(-1, 3)
+        return logits.cpu().tolist()
+
+    def forward(self, is_answer, **kwargs):
+        logits = self._forward(**kwargs, is_answer=is_answer)
+        logits = logits.view(-1, 3)
+        answer = is_answer.view(-1, 3).argmax(dim=-1).view(-1)
+        loss = F.cross_entropy(logits, answer)
+        acc = (logits.argmax(dim=-1).view(-1) == answer).cpu().tolist()
+        return logits.cpu().tolist(), acc, loss
+
+    def _forward(self, article, question, choice, is_answer, **kwargs):
+        device = is_answer.device
+        tokenizer = self.pretrained.tokenizer
+        cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
+        sentences = []
+        for a, q, c, i in zip(article, question, choice, is_answer):
+            sent = f"{cls_token}{a}{sep_token}{q}{sep_token}{c}{sep_token}"
+            sentences.append(sent)
+
+        article_features = self.pretrained(sentences, device)
+        logits = self.predict(article_features).squeeze(-1)
+        return logits
+
+
 class ClsAttention(nn.Module):
     def __init__(self, pretrained_cfg, hidden_size=128, configs=None, **kwargs):
         super().__init__()
