@@ -6,12 +6,12 @@ dev_qa_data: data/Develop_QA.json
 dev_risk_data: data/Develop_risk_classification.csv
 
 # device
-device_id: 2 # cpu: -1, gpu: >= 0
+device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
 seed: 1126
 epochs: 10
-batch_size: 8
+batch_size: 1
 learning_rate: 0.0001
 warmup_steps: 20
 val_size: 0.2
@@ -19,6 +19,7 @@ val_size: 0.2
 log_step: 1
 
 # model
+model_class: RetrivalBinary
 model: Roberta
 hidden_dim: 256
 dropout: 0.2
@@ -27,8 +28,29 @@ latent_mode: cls
 activation: GELU
   
 # data processing
+dataset_class: qa_binary_dataset
 max_document_len: 512
 max_question_len: 50
 spkr: ['民眾', '個管師', '醫師', '護理師', '家屬', '藥師']
 use_spkr_token: false
 aug_mode: 'long'
+span_size: 10
+max_context_size: 30
+
+# qa models
+min_sentence_len: 0
+spkr_mode: 'token' # can be None, 'content', 'token'
+ClsAttention:
+  pretrained_cfg:
+    pretrained: Roberta
+    trainable_from: 11
+    embedding_mode: pooler_output
+    max_tokens: 10000
+  hidden_size: 128
+RetrivalBinary:
+  pretrained_cfg:
+    pretrained: Bert
+    trainable_from: 0
+    embedding_mode: pooler_output
+    max_tokens: 10000
+  hidden_size: 128

@@ -1,70 +1,111 @@
+from logging import log
+from os import sep
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pad_sequence
+from .pretrained import PretrainModel
 
-from transformers import BertModel, AutoModel
+
+def get_qa_model(configs):
+    model_cls_name = configs["model_class"]
+    model_cfg = configs[model_cls_name]
+    return eval(model_cls_name)(**model_cfg, configs=configs)
 
 
-class BertClassifier(nn.Module):
-    def __init__(self, configs):
+class RetrivalBinary(nn.Module):
+    def __init__(self, pretrained_cfg, configs, **kwargs):
         super().__init__()
-        self.bert = {
-            "Bert": lambda: BertModel.from_pretrained("ckiplab/bert-base-chinese"),
-            "Roberta": lambda: AutoModel.from_pretrained("hfl/chinese-roberta-wwm-ext"),
-        }.get(configs["model"], None)()
-        D_in, hidden_dim, D_out = 768, configs["hidden_dim"], 1
+        self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
+        self.predict = nn.Linear(self.pretrained.model.config.hidden_size, 1)
 
-        hidden_layers = []
-        hidden_layers.append(nn.Linear(D_in, hidden_dim))
-        for _ in range(configs["n_cls_layers"]):
-            hidden_layers.append(nn.Linear(hidden_dim, hidden_dim))
-            hidden_layers.append(nn.ReLU())
-            hidden_layers.append(nn.Dropout(configs["dropout"]))
-        hidden_layers.append(nn.Linear(hidden_dim, D_out))
-        self.classifier = nn.Sequential(*hidden_layers)
+    def infer(self, **kwargs):
+        logits = self._forward(**kwargs)
+        return (logits > 0.5).long()
 
-        if configs["freeze_bert"]:
-            for param in self.bert.parameters():
-                param.requires_grad = False
+    def forward(self, is_answer, **kwargs):
+        logits = self._forward(**kwargs, is_answer=is_answer)
+        loss = F.binary_cross_entropy(logits, is_answer.float())
+        acc = ((logits > 0.5).long() == is_answer).long().cpu().tolist()
+        return acc, loss
 
-    def forward(self, input_ids, attention_mask):
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        last_hidden_state_cls = outputs[0][:, 0, :]
-        logits = self.classifier(last_hidden_state_cls)
-        return torch.sigmoid(logits)
+    def _forward(self, article, question, choice, is_answer, **kwargs):
+        device = is_answer.device
+        tokenizer = self.pretrained.tokenizer
+        cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
+        sentences = []
+        for a, q, c, i in zip(article, question, choice, is_answer):
+            sent = f"{cls_token}{a}{sep_token}{q}{sep_token}{c}{sep_token}"
+            sentences.append(sent)
 
-    def loss_func(self, input_ids, attention_mask, answer):
-        pred = self(input_ids, attention_mask).reshape(-1)
-        answer = answer.reshape(-1)
-        return F.binary_cross_entropy(pred, answer)
+        article_features = self.pretrained(sentences, device)
+        logits = F.sigmoid(self.predict(article_features).squeeze(-1))
+        return logits
 
 
-class QA_Model(nn.Module):
-    def __init__(self, configs):
+class ClsAttention(nn.Module):
+    def __init__(self, pretrained_cfg, hidden_size=128, configs=None, **kwargs):
         super().__init__()
-        self.bert_classifier = BertClassifier(configs)
+        self.pretrained = PretrainModel(**pretrained_cfg, configs=configs)
 
-    def forward(self, input_ids, attention_mask, answer=None):
-        # input_ids Shape: [Batch_Size, num_choices, input_length]
-        # attention Shape: [Batch_Size, num_choices, input_length]
+        pretrained_size = self.pretrained.model.config.hidden_size
+        self.key = nn.Linear(pretrained_size, hidden_size)
+        self.query = nn.Linear(pretrained_size * 2, hidden_size)
+        self.predict = nn.Linear(pretrained_size, 1)
 
-        outputs = []
-        for choice in range(input_ids.shape[1]):
-            _input_ids = input_ids[:, choice, :]
-            _attention_mask = attention_mask[:, choice, :]
-            outputs.append(self.bert_classifier(_input_ids, _attention_mask))
-        outputs = torch.cat(outputs, dim=-1)
-        preds = torch.argmax(outputs, dim=1)
+    def infer(self, qa_id, article, role, question, choices, **kwargs):
+        flatted_article = []
+        flatted_role = []
+        diag_num = []
+        for a, r in zip(article, role):
+            flatted_article += a
+            flatted_role += r
+            diag_num.append(len(a))
 
-        if answer is not None:
-            answer = answer.reshape(-1)
-            loss = F.binary_cross_entropy(outputs.reshape(-1), answer)
-            return preds, loss
+        article_features = torch.split(self.pretrained(flatted_article), diag_num)
+        article_features = pad_sequence(article_features, batch_first=True)
+        # (batch_size, dialogue_num, pretrained_size)
+        key_features = self.key(article_features)
+        # (batch_size, dialogue_num, hidden_size)
 
-        return preds
+        question_features = self.pretrained(question)
+        # (batch_size, pretrained_size)
 
-    def pred_label(self, input_ids, attention_mask, labels):
-        preds = self(input_ids, attention_mask)
-        _pred_label = [label[pred] for pred, label in zip(preds, zip(*labels))]
+        flatted_choices = []
+        for choice in choices:
+            flatted_choices += choice
+        choices_features = torch.split(
+            self.pretrained(flatted_choices), [3] * len(qa_id)
+        )
+        choices_features = pad_sequence(choices_features, batch_first=True)
+        # (batch_size, 3, pretrained_size)
 
-        return _pred_label
+        qa_features = torch.cat(
+            [question_features.unsqueeze(1).expand(-1, 3, -1), choices_features], dim=-1
+        )
+        # (batch_size, choices_num, pretrained_size)
+        query_features = self.query(qa_features)
+        # (batch_size, choices_num, hidden_size)
+
+        matching_score = torch.bmm(query_features, key_features.transpose(1, 2))
+        # (batch_size, choices_num, dialogue_num)
+        attention_mask = (
+            ~torch.lt(
+                torch.arange(max(diag_num)).unsqueeze(0),
+                torch.LongTensor(diag_num).unsqueeze(-1),
+            )
+        ).long() * -10000000000
+        matching_score += attention_mask.unsqueeze(1).to(qa_id.device)
+        attention = matching_score.softmax(dim=-1)
+        attended_content = (
+            attention.unsqueeze(-1) * article_features.unsqueeze(1)
+        ).sum(dim=2)
+        # (batch_size, choices_num, hidden_size)
+
+        logtis = self.predict(attended_content + query_features).squeeze(-1)
+        # (batch_size, choices_num)
+        return logtis
+
+    def forward(self, answer, **kwargs):
+        prediction = self.infer(**kwargs)
+        return prediction, F.cross_entropy(prediction, answer)
