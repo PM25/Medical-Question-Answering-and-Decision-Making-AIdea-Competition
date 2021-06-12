@@ -6,15 +6,21 @@ import numpy as np
 import jieba.analyse
 from tqdm import tqdm
 from pathlib import Path
-from sklearn.metrics import roc_auc_score
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
-from sklearn.linear_model import LogisticRegression
+
+from sklearn.metrics import roc_auc_score, f1_score, classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.experimental import enable_hist_gradient_boosting
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
-from torch.utils.tensorboard import SummaryWriter
+
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+from sklearn.ensemble import (
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+    BaggingClassifier,
+)
 
 from dataset import risk_dataset
 from utils.setting import set_random_seed
@@ -33,59 +39,22 @@ MAX_DF = 0.8  # 0.72
 
 models = {
     # "LogisticRegression": lambda: LogisticRegression(random_state=seed),
-    "RandomForestClassifier": lambda: RandomForestClassifier(random_state=seed),
+    # "RandomForestClassifier": lambda: RandomForestClassifier(random_state=seed),
     "HistGradientBoostingClassifier": lambda: HistGradientBoostingClassifier(
         random_state=seed
     ),
-    "SVC": lambda: SVC(probability=True, random_state=seed),
-    # "MLPClassifier": lambda: MLPClassifier(early_stopping=True, random_state=seed),
+    "RBF_SVM": lambda: SVC(probability=True, random_state=seed),
+    "LinearSVM": lambda: SVC(kernel="linear", probability=True, random_state=seed),
+    "MLPClassifier": lambda: MLPClassifier(
+        max_iter=500, warm_start=True, random_state=seed
+    ),
+    "LogisticRegressionCV": lambda: LogisticRegressionCV(random_state=seed),
+    # "KNeighborsClassifier": lambda: KNeighborsClassifier(n_neighbors=2),
 }
 
 
 with open("data/stopwords.txt", "r") as f:
     stop_words = [line.strip() for line in f.readlines()]
-
-add_words = [
-    "護理師",
-    "個管師",
-    "醫師",
-    "民眾",
-    "家屬",
-    "HIV",
-    "關係",
-    "沒關係",
-    "性行為",
-    "戴套",
-    "覺得",
-    "看起來",
-    "然後",
-    "接下來",
-    "這個",
-    "藥",
-    "想起來",
-    "復發",
-    "回復",
-    "復元",
-    "現在",
-    "禮拜",
-    "下降",
-    "正常",
-    "好不好",
-    "高一點",
-    "因為",
-    "藥物",
-    "睡前",
-    "有一點",
-    "個月",
-    "比較少",
-    "吃藥",
-    "食慾",
-    "類固醇",
-    "肝炎",
-    "這樣",
-    "任務型",
-    "接下來",
-]
 
 break_words = [
     "的藥",
@@ -104,6 +73,8 @@ break_words = [
     "們有",
 ]
 
+with open("data/vocab.txt", "r") as f:
+    add_words = [line.strip() for line in f.readlines()]
 
 for word in add_words:
     jieba.suggest_freq(word, True)
@@ -113,8 +84,8 @@ for word in break_words:
 
 
 special_words_mapping = {
-    "HIV": "病毒",
-    "HPV": "病毒",
+    # "HIV": "病毒",
+    # "HPV": "病毒",
     "菜花": "梅毒",
     "防H": "防毒",
     "U=U": "測不到毒量",
@@ -177,8 +148,14 @@ def train_and_evaluate(corpus, answer, min_df=0.1, max_df=0.8, seed=1009, val_si
 
     if val_size > 0:
         probs = predict_prob(clfs, tfidf_vec, test_x)
-        val_score = roc_auc_score(test_y, probs)
-        return clfs, (train_score, val_score)
+        val_roc = roc_auc_score(test_y, probs)
+
+        preds = predict_class(clfs, tfidf_vec, test_x)
+        val_f1 = f1_score(test_y, preds)
+
+        print(classification_report(test_y, preds))
+
+        return clfs, (train_score, val_roc, val_f1)
     else:
         return clfs, (train_score)
 
@@ -222,6 +199,15 @@ def predict_prob(classifiers, tfidf_vec, corpus):
     return probs
 
 
+def predict_class(classifiers, tfidf_vec, corpus):
+    preds = predict_prob(classifiers, tfidf_vec, corpus)
+
+    preds[preds > 0.5] = 1
+    preds[preds <= 0.5] = 0
+
+    return preds
+
+
 def save_predict(probs, article_id):
     Path("output").mkdir(parents=True, exist_ok=True)
     with open("output/decision.csv", "w") as f:
@@ -239,21 +225,23 @@ if __name__ == "__main__":
     corpus, answer, _ = process_data(dataset)
 
     print("[Testing with 50 different seeds]")
-    train_scores, val_scores = [], []
-    for _ in range(50):
-        seed = random.randint(1, 1000)
-        clfs, (train_score, val_score) = train_and_evaluate(
+    train_scores, val_rocs, val_f1s = [], [], []
+    for _ in range(100):
+        seed = random.randint(0, 9999)
+        clfs, (train_score, val_roc, val_f1) = train_and_evaluate(
             corpus, answer, MIN_DF, MAX_DF, seed=seed, val_size=configs["val_size"]
         )
         train_scores.append(train_score)
-        val_scores.append(val_score)
+        val_rocs.append(val_roc)
+        val_f1s.append(val_f1)
         print(
-            f"[seed={seed:<3}] train score: {train_score:.3f} | test score: {val_score:.3f}"
+            f"[seed={seed:<4}] train roc: {train_score:.3f} | test roc: {val_roc:.3f} | test f1: {val_f1:.3f}"
         )
 
     print("=" * 25)
-    print(f"average train score: {np.mean(train_scores):.5f}")
-    print(f"average val score: {np.mean(val_scores):.5f}")
+    print(f"average train roc auc score: {np.mean(train_scores):.5f}")
+    print(f"average val roc auc score: {np.mean(val_rocs):.5f}")
+    print(f"average val f1 score: {np.mean(val_f1s):.5f}")
 
     clfs, tfidf_vec = train(corpus, answer, MIN_DF, MAX_DF)
 
