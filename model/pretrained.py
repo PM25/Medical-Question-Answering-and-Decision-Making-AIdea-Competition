@@ -4,7 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformers import BertModel, AutoModel, AutoTokenizer, BertTokenizer
+from transformers import BertModel, AutoModel, AutoTokenizer, BertTokenizer, BertForPreTraining
 
 
 class PretrainModel(nn.Module):
@@ -31,6 +31,10 @@ class PretrainModel(nn.Module):
                 "hfl/chinese-roberta-wwm-ext",
                 additional_special_tokens=special_tokens,
             ),
+            "Medical": lambda: AutoTokenizer.from_pretrained(
+                "hfl/chinese-roberta-wwm-ext",
+                additional_special_tokens=special_tokens,
+            ),
         }
 
         PRETRAINED_MODELS = {
@@ -40,6 +44,10 @@ class PretrainModel(nn.Module):
             "Roberta": lambda: AutoModel.from_pretrained(
                 "hfl/chinese-roberta-wwm-ext", output_hidden_states=True
             ),
+            "Medical": lambda: BertForPreTraining.from_pretrained(
+                configs["medical_bert_dir"],
+                from_tf=True,
+            ).bert,
         }
 
         self.tokenizer = TOKENIZERS[pretrained]()

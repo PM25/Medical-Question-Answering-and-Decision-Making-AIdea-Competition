@@ -10,7 +10,7 @@ from collections import defaultdict
 from parsing import text_preprocessing
 import torch
 from torch.utils.data import Dataset, DataLoader
-
+import opencc
 # import jieba
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -226,10 +226,17 @@ class qa_binary_dataset(Dataset):
         self.training = training
         self.configs = configs
         self.term_count = {}
+
         for line in open("data/df.txt", "r"):
             term, count = line.strip().split(' ')
             self.term_count[term] = int(count)
+
+        self.converter = None
+        if self.configs.get("t2s") is not None:
+            self.converter = opencc.OpenCC(self.configs["t2s"])
+
         self.data = self.preprocess(qa_file)
+
 
     def __len__(self):
         return len(self.data)
@@ -286,6 +293,10 @@ class qa_binary_dataset(Dataset):
         diag_subset = get_diag_subset(idx_range, role_and_dialogue)
         thr = 502 - len(question_text) - len(choice_text)
         diag_subset = diag_prune(diag_subset, thr)
+
+        if self.converter is not None:
+            diag_subset = [(item[0], self.converter.convert(item[1])) for item in diag_subset]
+
         if spkr_mode is None:
             return ''.join([d[1] for d in diag_subset])
         

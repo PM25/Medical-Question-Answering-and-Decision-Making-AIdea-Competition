@@ -36,6 +36,8 @@ use_spkr_token: false
 aug_mode: 'long'
 span_size: 15
 max_context_size: 100
+t2s: null
+medical_bert_dir: /home/leo/d/nlp/medical_bert
 
 # qa models
 min_sentence_len: 0
