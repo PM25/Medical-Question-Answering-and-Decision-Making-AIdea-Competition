@@ -23,7 +23,7 @@ torch.cuda.empty_cache()
 logging.set_verbosity(logging.ERROR)
 
 
-def train(model, train_loader, val_loader=None, configs=configs):
+def train(model, train_loader, val1_loader=None, val2_loader=None, configs=configs):
     model.train()
     model.to(torch_device)
 
@@ -58,15 +58,18 @@ def train(model, train_loader, val_loader=None, configs=configs):
             train_loss += loss.item()
             train_acc += acc
 
-            if val_loader is not None and step == len(train_loader):
-                val_loss, val_acc = evaluate(model, val_loader)
+            if val1_loader is not None and step == len(train_loader):
+                val1_loss, val1_acc = evaluate(model, val1_loader)
+                val2_loss, val2_acc = evaluate(model, val2_loader)
                 train_loss /= len(train_loader)
                 train_acc = np.mean(train_acc)
                 tqdm_train_loader.set_description(
-                    f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f}",
+                    f"[Epoch:{epoch:03}] Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.3f} | Val1 Loss: {val1_loss:.3f} | Val1 Acc: {val1_acc:.3f} | Val2 Loss: {val2_loss:.3f} | Val2 Acc: {val2_acc:.3f}",
                 )
-                writer.add_scalar("QA_Accuracy/valalidation", val_acc, epoch)
-                writer.add_scalar("QA_Loss/validation", val_loss, epoch)
+                writer.add_scalar("QA_Accuracy/valalidation1", val1_acc, epoch)
+                writer.add_scalar("QA_Loss/validation1", val1_loss, epoch)
+                writer.add_scalar("QA_Accuracy/valalidation2", val2_acc, epoch)
+                writer.add_scalar("QA_Loss/validation2", val2_loss, epoch)
                 writer.add_scalar("QA_Accuracy/train", train_acc, epoch)
                 writer.add_scalar("QA_Loss/train", train_loss, epoch)
 
@@ -181,27 +184,31 @@ def save_preds(model, data_loader):
 
 if __name__ == "__main__":
     qa_dataset = eval(configs["dataset_class"])
-    train_dataset = qa_dataset(configs, configs["qa_data"], training=True)
-    val_dataset = qa_dataset(configs, configs["qa_data"], training=False)
+    train_dataset = qa_dataset(configs["qa_data"], configs=configs, training=True)
+    val_dataset = qa_dataset(configs["qa_data"], configs=configs, training=False)
 
     # val_size = int(len(dataset) * configs["val_size"])
     # train_size = len(dataset) - val_size
 
-    # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    val1_dataset, val2_dataset = random_split(val_dataset, [len(val_dataset) // 2, len(val_dataset) - len(val_dataset) // 2])
 
     train_loader = DataLoader(
         train_dataset, batch_size=configs["batch_size"], shuffle=True, num_workers=0,
         collate_fn=qa_dataset.collate_fn,
     )
-    val_loader = DataLoader(
-        val_dataset, batch_size=configs["batch_size"], num_workers=4,
+    val1_loader = DataLoader(
+        val1_dataset, batch_size=configs["batch_size"], num_workers=4,
+        collate_fn=qa_dataset.collate_fn,
+    )
+    val2_loader = DataLoader(
+        val2_dataset, batch_size=configs["batch_size"], num_workers=4,
         collate_fn=qa_dataset.collate_fn,
     )
 
-    qa_model = train(get_qa_model(configs), train_loader, val_loader)
+    qa_model = train(get_qa_model(configs), train_loader, val1_loader, val2_loader)
     # qa_model = get_qa_model(configs)
 
-    test_dataset = qa_dataset(configs, configs["dev_qa_data"])
+    test_dataset = qa_dataset(configs["dev_qa_data"], configs=configs)
     test_loader = DataLoader(
         test_dataset, batch_size=configs["batch_size"], num_workers=4,
         collate_fn=qa_dataset.collate_fn,

@@ -220,8 +220,8 @@ class qa_dataset(Dataset):
         return batch
 
 
-class qa_binary_dataset(Dataset):
-    def __init__(self, configs, qa_file, training=None):
+class qa_retrival_dataset(Dataset):
+    def __init__(self, configs, training=None):
         super().__init__()
         self.training = training
         self.configs = configs
@@ -235,46 +235,42 @@ class qa_binary_dataset(Dataset):
         if self.configs.get("t2s") is not None:
             self.converter = opencc.OpenCC(self.configs["t2s"])
 
-        self.data = self.preprocess(qa_file)
-
-
-    def __len__(self):
-        return len(self.data)
     
-    # def retrival(self, role_and_dialogue, question_text, choice_text):
-    #     span_size = self.configs["span_size"]
-    #     max_context_size = self.configs["max_context_size"]
+    def retrival1(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+        span_size = self.configs["span_size"]
+        max_context_size = self.configs["max_context_size"]
 
-    #     char_level_role = []
-    #     for r, d in role_and_dialogue:
-    #         char_level_role += [r] * len(d)
-    #     full_dialogue = "".join([d for _, d in role_and_dialogue])
+        char_level_role = []
+        for r, d in role_and_dialogue:
+            char_level_role += [r] * len(d)
+        full_dialogue = "".join([d for _, d in role_and_dialogue])
 
-    #     context_range = torch.zeros(len(full_dialogue))
-    #     substrings = []
-    #     for length in reversed(range(1, len(choice_text))):
-    #         for start in range(len(choice_text) - length):
-    #             substrings.append(choice_text[start : start + length])
+        context_range = torch.zeros(len(full_dialogue))
+        substrings = []
+        for length in reversed(range(1, len(choice_text))):
+            for start in range(len(choice_text) - length):
+                substrings.append(choice_text[start : start + length])
 
-    #     for substring in substrings:
-    #         for result in re.finditer(substring, full_dialogue):
-    #             if context_range.sum() + 2 * span_size < max_context_size:
-    #                 context_range[result.start() - span_size : result.end() + span_size] = 1
+        for substring in substrings:
+            for result in re.finditer(substring, full_dialogue):
+                if context_range.sum() + 2 * span_size < max_context_size:
+                    context_range[result.start() - span_size : result.end() + span_size] = 1
 
-    #     if context_range.sum() == 0:
-    #         return "不"
+        if context_range.sum() == 0:
+            return "不"
 
-    #     filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
-    #     current_role = filtered[0][0]
-    #     final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
-    #     for content in filtered[1:]:
-    #         role, char = content
-    #         if role != current_role:
-    #             current_role = role
-    #             final_article += f"[{role}]"
-    #         final_article += char
-    #     return final_article
-    def retrival(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+        filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
+        current_role = filtered[0][0]
+        final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
+        for content in filtered[1:]:
+            role, char = content
+            if role != current_role:
+                current_role = role
+                final_article += f"[{role}]"
+            final_article += char
+        return final_article
+
+    def retrival2(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
         idx_range = []
         substrings = []
         for length in reversed(range(1, len(choice_text))):
@@ -306,14 +302,22 @@ class qa_binary_dataset(Dataset):
         elif spkr_mode == 'content':
             return ''.join([f'{d[0]}：{d[1]}' for d in diag_subset])
 
+class qa_binary_dataset(qa_retrival_dataset):
+    def __init__(self, qa_file, **kwargs):
+        super().__init__(**kwargs)
+        self.data = self.preprocess(qa_file)
+
+    def __len__(self):
+        return len(self.data)
+    
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
             data = []
             datums = list(json.load(f_QA))
 
             if self.training is not None:
-                random.seed(0)
-                sampled = random.choices(datums, k=int(len(datums) * 0.3))
+                random.seed(self.configs["seed"])
+                sampled = random.choices(datums, k=int(len(datums) * self.configs["val_size"]))
                 if self.training:
                     datums = [d for d in datums if d not in sampled]
                 else:
@@ -345,7 +349,7 @@ class qa_binary_dataset(Dataset):
                         is_answer = None
 
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
-                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text, self.configs["spkr_mode"])
+                    sub_article = self.retrival2(role_and_dialogue, question_text, choice_text, self.configs["spkr_mode"])
 
                     data.append(
                         {
@@ -376,50 +380,13 @@ class qa_binary_dataset(Dataset):
         return batch
 
 
-class qa_multiple_dataset(Dataset):
-    def __init__(self, configs, qa_file, training=None):
-        super().__init__()
-        self.training = training
-        self.configs = configs
+class qa_multiple_dataset(qa_retrival_dataset):
+    def __init__(self, qa_file, **kwargs):
+        super().__init__(**kwargs)
         self.data = self.preprocess(qa_file)
 
     def __len__(self):
         return len(self.data)
-    
-    def retrival(self, role_and_dialogue, question_text, choice_text):
-        span_size = self.configs["span_size"]
-        max_context_size = self.configs["max_context_size"]
-
-        char_level_role = []
-        for r, d in role_and_dialogue:
-            char_level_role += [r] * len(d)
-        full_dialogue = "".join([d for _, d in role_and_dialogue])
-
-        context_range = torch.zeros(len(full_dialogue))
-        substrings = []
-        for length in reversed(range(1, len(choice_text))):
-            for start in range(len(choice_text) - length):
-                substrings.append(choice_text[start : start + length])
-
-        for substring in substrings:
-            for result in re.finditer(substring, full_dialogue):
-                if context_range.sum() + 2 * span_size < max_context_size:
-                    context_range[result.start() - span_size : result.end() + span_size] = 1
-
-        if context_range.sum() == 0:
-            return "不"
-
-        filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside and (not self.training or random.random() > 0.5)]
-        current_role = filtered[0][0]
-        final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
-        final_article = f"{filtered[0][1]}"
-        for content in filtered[1:]:
-            role, char = content
-            if role != current_role:
-                current_role = role
-                final_article += f"[{role}]"
-            final_article += char
-        return final_article
 
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
@@ -427,8 +394,8 @@ class qa_multiple_dataset(Dataset):
             datums = list(json.load(f_QA))
 
             if self.training is not None:
-                random.seed(0)
-                sampled = random.choices(datums, k=int(len(datums) * 0.3))
+                random.seed(self.configs["seed"])
+                sampled = random.choices(datums, k=int(len(datums) * self.configs["val_size"]))
                 if self.training:
                     datums = [d for d in datums if d not in sampled]
                 else:
@@ -461,7 +428,8 @@ class qa_multiple_dataset(Dataset):
                         is_answer = None
 
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
-                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text)
+                    retrival_fn = eval(self.configs["retrival_fn"])
+                    sub_article = retrival_fn(role_and_dialogue, question_text, choice_text, self.configs["spkr"])
 
                     data_point.append(
                         {
