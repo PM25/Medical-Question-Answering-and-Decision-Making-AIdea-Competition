@@ -225,11 +225,11 @@ class qa_binary_dataset(Dataset):
         super().__init__()
         self.training = training
         self.configs = configs
-        self.data = self.preprocess(qa_file)
         self.term_count = {}
         for line in open("data/df.txt", "r"):
             term, count = line.strip().split(' ')
-            self.term_count[term] = count
+            self.term_count[term] = int(count)
+        self.data = self.preprocess(qa_file)
 
     def __len__(self):
         return len(self.data)
