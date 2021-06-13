@@ -10,7 +10,7 @@ from collections import defaultdict
 from parsing import text_preprocessing
 import torch
 from torch.utils.data import Dataset, DataLoader
-
+import opencc
 # import jieba
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -220,53 +220,57 @@ class qa_dataset(Dataset):
         return batch
 
 
-class qa_binary_dataset(Dataset):
-    def __init__(self, configs, qa_file):
+class qa_retrival_dataset(Dataset):
+    def __init__(self, configs, training=None):
         super().__init__()
+        self.training = training
         self.configs = configs
-        self.data = self.preprocess(qa_file)
         self.term_count = {}
+
         for line in open("data/df.txt", "r"):
             term, count = line.strip().split(' ')
-            self.term_count[term] = count
+            self.term_count[term] = int(count)
 
-    def __len__(self):
-        return len(self.data)
+        self.converter = None
+        if self.configs.get("t2s") is not None:
+            self.converter = opencc.OpenCC(self.configs["t2s"])
+
     
-    # def retrival(self, role_and_dialogue, question_text, choice_text):
-    #     span_size = self.configs["span_size"]
-    #     max_context_size = self.configs["max_context_size"]
+    def retrival1(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+        span_size = self.configs["span_size"]
+        max_context_size = self.configs["max_context_size"]
 
-    #     char_level_role = []
-    #     for r, d in role_and_dialogue:
-    #         char_level_role += [r] * len(d)
-    #     full_dialogue = "".join([d for _, d in role_and_dialogue])
+        char_level_role = []
+        for r, d in role_and_dialogue:
+            char_level_role += [r] * len(d)
+        full_dialogue = "".join([d for _, d in role_and_dialogue])
 
-    #     context_range = torch.zeros(len(full_dialogue))
-    #     substrings = []
-    #     for length in reversed(range(1, len(choice_text))):
-    #         for start in range(len(choice_text) - length):
-    #             substrings.append(choice_text[start : start + length])
+        context_range = torch.zeros(len(full_dialogue))
+        substrings = []
+        for length in reversed(range(1, len(choice_text))):
+            for start in range(len(choice_text) - length):
+                substrings.append(choice_text[start : start + length])
 
-    #     for substring in substrings:
-    #         for result in re.finditer(substring, full_dialogue):
-    #             if context_range.sum() + 2 * span_size < max_context_size:
-    #                 context_range[result.start() - span_size : result.end() + span_size] = 1
+        for substring in substrings:
+            for result in re.finditer(substring, full_dialogue):
+                if context_range.sum() + 2 * span_size < max_context_size:
+                    context_range[result.start() - span_size : result.end() + span_size] = 1
 
-    #     if context_range.sum() == 0:
-    #         return "不"
+        if context_range.sum() == 0:
+            return "不"
 
-    #     filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
-    #     current_role = filtered[0][0]
-    #     final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
-    #     for content in filtered[1:]:
-    #         role, char = content
-    #         if role != current_role:
-    #             current_role = role
-    #             final_article += f"[{role}]"
-    #         final_article += char
-    #     return final_article
-    def retrival(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+        filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
+        current_role = filtered[0][0]
+        final_article = f"[{filtered[0][0]}]{filtered[0][1]}"
+        for content in filtered[1:]:
+            role, char = content
+            if role != current_role:
+                current_role = role
+                final_article += f"[{role}]"
+            final_article += char
+        return final_article
+
+    def retrival2(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
         idx_range = []
         substrings = []
         for length in reversed(range(1, len(choice_text))):
@@ -285,6 +289,10 @@ class qa_binary_dataset(Dataset):
         diag_subset = get_diag_subset(idx_range, role_and_dialogue)
         thr = 502 - len(question_text) - len(choice_text)
         diag_subset = diag_prune(diag_subset, thr)
+
+        if self.converter is not None:
+            diag_subset = [(item[0], self.converter.convert(item[1])) for item in diag_subset]
+
         if spkr_mode is None:
             return ''.join([d[1] for d in diag_subset])
         
@@ -294,10 +302,28 @@ class qa_binary_dataset(Dataset):
         elif spkr_mode == 'content':
             return ''.join([f'{d[0]}：{d[1]}' for d in diag_subset])
 
+class qa_binary_dataset(qa_retrival_dataset):
+    def __init__(self, qa_file, **kwargs):
+        super().__init__(**kwargs)
+        self.data = self.preprocess(qa_file)
+
+    def __len__(self):
+        return len(self.data)
+    
     def preprocess(self, qa_file: str):
         with open(qa_file, "r", encoding="utf-8") as f_QA:
             data = []
-            for datum in tqdm(json.load(f_QA)):
+            datums = list(json.load(f_QA))
+
+            if self.training is not None:
+                random.seed(self.configs["seed"])
+                sampled = random.choices(datums, k=int(len(datums) * self.configs["val_size"]))
+                if self.training:
+                    datums = [d for d in datums if d not in sampled]
+                else:
+                    datums = sampled
+
+            for datum in tqdm(datums):
                 _id = datum["id"]
                 article = normalize("NFKC", datum["text"])
 
@@ -309,20 +335,21 @@ class qa_binary_dataset(Dataset):
                 if answer is not None:
                     answer = normalize("NFKC", answer)
 
+                has_answer = False
                 for choice_id, choice in enumerate(question["choices"]):
                     choice_text = normalize("NFKC", choice["text"])
-                    choice_text = text_preprocessing(choice_text)
+                    label = normalize("NFKC", choice["label"])
 
                     if answer is not None:
                         is_answer = False
-                        label = normalize("NFKC", choice["label"])
                         if label in answer or choice_text in answer:
                             is_answer = True
+                            has_answer = True
                     else:
                         is_answer = None
 
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
-                    sub_article = self.retrival(role_and_dialogue, question_text, choice_text, self.configs["spkr_mode"])
+                    sub_article = self.retrival2(role_and_dialogue, question_text, choice_text, self.configs["spkr_mode"])
 
                     data.append(
                         {
@@ -330,9 +357,11 @@ class qa_binary_dataset(Dataset):
                             "article": sub_article,
                             "question": question_text,
                             "choice": choice_text,
-                            "is_answer": is_answer,
+                            "is_answer": is_answer if is_answer is not None else 0,
+                            "label": label,
                         }
                     )
+                assert answer is None or has_answer
 
         return data
 
@@ -347,8 +376,93 @@ class qa_binary_dataset(Dataset):
             for key in keys:
                 batch[key].append(sample[key])
         
-        if batch["is_answer"] is not None:
-            batch["is_answer"] = torch.LongTensor(batch["is_answer"])
+        batch["is_answer"] = torch.LongTensor(batch["is_answer"])
+        return batch
+
+
+class qa_multiple_dataset(qa_retrival_dataset):
+    def __init__(self, qa_file, **kwargs):
+        super().__init__(**kwargs)
+        self.data = self.preprocess(qa_file)
+
+    def __len__(self):
+        return len(self.data)
+
+    def preprocess(self, qa_file: str):
+        with open(qa_file, "r", encoding="utf-8") as f_QA:
+            data = []
+            datums = list(json.load(f_QA))
+
+            if self.training is not None:
+                random.seed(self.configs["seed"])
+                sampled = random.choices(datums, k=int(len(datums) * self.configs["val_size"]))
+                if self.training:
+                    datums = [d for d in datums if d not in sampled]
+                else:
+                    datums = sampled
+
+            for datum in tqdm(datums):
+                _id = datum["id"]
+                article = normalize("NFKC", datum["text"])
+
+                question = datum["question"]
+                question_text = normalize("NFKC", question["stem"])
+                question_text = text_preprocessing(question_text)
+
+                answer = datum.get("answer", None)
+                if answer is not None:
+                    answer = normalize("NFKC", answer)
+
+                data_point = []
+                has_answer = False
+                for choice_id, choice in enumerate(question["choices"]):
+                    choice_text = normalize("NFKC", choice["text"])
+                    label = normalize("NFKC", choice["label"])
+
+                    if answer is not None:
+                        is_answer = False
+                        if label in answer or choice_text in answer:
+                            is_answer = True
+                            has_answer = True
+                    else:
+                        is_answer = None
+
+                    role_and_dialogue = split_sent(article, self.configs["spkr"])
+                    retrival_fn = eval(self.configs["retrival_fn"])
+                    sub_article = retrival_fn(role_and_dialogue, question_text, choice_text, self.configs["spkr"])
+
+                    data_point.append(
+                        {
+                            "qa_id": _id,
+                            "article": sub_article,
+                            "question": question_text,
+                            "choice": choice_text,
+                            "is_answer": is_answer if is_answer is not None else 0,
+                            "label": label,
+                        }
+                    )
+                assert answer is None or has_answer
+                data.append(data_point)
+
+        return data
+
+    def __getitem__(self, idx: int):
+        return self.data[idx]
+
+    @staticmethod
+    def collate_fn(samples):
+        flatted_samples = []
+        for sample in samples:
+            flatted_samples += sample
+        samples = flatted_samples
+
+        batch = defaultdict(list)
+        keys = samples[0].keys()
+        for sample in samples:
+            for key in keys:
+                batch[key].append(sample[key])
+
+        batch["is_answer"] = torch.LongTensor(batch["is_answer"])
         return batch
 
 
