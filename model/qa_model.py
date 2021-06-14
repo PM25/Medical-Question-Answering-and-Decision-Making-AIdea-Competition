@@ -62,13 +62,13 @@ class RetrivalMultiple(nn.Module):
         acc = (logits.argmax(dim=-1).view(-1) == answer).cpu().tolist()
         return logits.cpu().tolist(), acc, loss
 
-    def _forward(self, article, question, choice, is_answer, **kwargs):
+    def _forward(self, question_article, choice_article, question, choice, is_answer, **kwargs):
         device = is_answer.device
         tokenizer = self.pretrained.tokenizer
         cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
         sentences = []
-        for a, q, c, i in zip(article, question, choice, is_answer):
-            sent = f"{cls_token}{a}{sep_token}{q}{sep_token}{c}{sep_token}"
+        for qa, ca, q, c, i in zip(question_article, choice_article, question, choice, is_answer):
+            sent = f"{cls_token}{ca}{sep_token}{c}{sep_token}{q}{sep_token}"
             sentences.append(sent)
 
         article_features = self.pretrained(sentences, device)
@@ -83,62 +83,45 @@ class ClsAttention(nn.Module):
 
         pretrained_size = self.pretrained.model.config.hidden_size
         self.key = nn.Linear(pretrained_size, hidden_size)
+        self.value = nn.Linear(pretrained_size, hidden_size)
         self.query = nn.Linear(pretrained_size * 2, hidden_size)
-        self.predict = nn.Linear(pretrained_size, 1)
+        self.predict = nn.Linear(2 * pretrained_size, 1)
 
-    def infer(self, qa_id, article, role, question, choices, **kwargs):
-        flatted_article = []
-        flatted_role = []
-        diag_num = []
-        for a, r in zip(article, role):
-            flatted_article += a
-            flatted_role += r
-            diag_num.append(len(a))
+    def infer(self, **kwargs):
+        logits = self._forward(**kwargs)
+        logits = logits.view(-1, 3)
+        return logits.cpu().tolist()
 
-        article_features = torch.split(self.pretrained(flatted_article), diag_num)
-        article_features = pad_sequence(article_features, batch_first=True)
-        # (batch_size, dialogue_num, pretrained_size)
-        key_features = self.key(article_features)
-        # (batch_size, dialogue_num, hidden_size)
+    def forward(self, is_answer, **kwargs):
+        logits = self._forward(**kwargs, is_answer=is_answer)
+        logits = logits.view(-1, 3)
+        answer = is_answer.view(-1, 3).argmax(dim=-1).view(-1)
+        loss = F.cross_entropy(logits, answer)
+        acc = (logits.argmax(dim=-1).view(-1) == answer).cpu().tolist()
+        return logits.cpu().tolist(), acc, loss
 
-        question_features = self.pretrained(question)
-        # (batch_size, pretrained_size)
+    def _forward(self, question_article, choice_article, question, choice, is_answer, **kwargs):
+        device = is_answer.device
+        tokenizer = self.pretrained.tokenizer
+        cls_token, sep_token = tokenizer.cls_token, tokenizer.sep_token
+        article_features, question_features, choice_features = [], [], []
+        for qa, ca, q, c, i in zip(question_article, choice_article, question, choice, is_answer):
+            article_features.append(self.pretrained([f"{cls_token}{qa}{ca}{sep_token}"], embedding_mode="last_seq"))
+            question_features.append(self.pretrained([f"{cls_token}{q}{sep_token}"]))
+            choice_features.append(self.pretrained([f"{cls_token}{c}{sep_token}"]))
 
-        flatted_choices = []
-        for choice in choices:
-            flatted_choices += choice
-        choices_features = torch.split(
-            self.pretrained(flatted_choices), [3] * len(qa_id)
-        )
-        choices_features = pad_sequence(choices_features, batch_first=True)
-        # (batch_size, 3, pretrained_size)
+        article_features = pad_sequence([a[0] for a in article_features], batch_first=True)
+        question_features = torch.cat(question_features)
+        choice_features = torch.cat(choice_features)
 
-        qa_features = torch.cat(
-            [question_features.unsqueeze(1).expand(-1, 3, -1), choices_features], dim=-1
-        )
-        # (batch_size, choices_num, pretrained_size)
-        query_features = self.query(qa_features)
-        # (batch_size, choices_num, hidden_size)
-
-        matching_score = torch.bmm(query_features, key_features.transpose(1, 2))
-        # (batch_size, choices_num, dialogue_num)
-        attention_mask = (
-            ~torch.lt(
-                torch.arange(max(diag_num)).unsqueeze(0),
-                torch.LongTensor(diag_num).unsqueeze(-1),
-            )
-        ).long() * -10000000000
-        matching_score += attention_mask.unsqueeze(1).to(qa_id.device)
+        matching_score = torch.bmm(article_features, choice_features.unsqueeze(-1)).squeeze(-1)
+        # (batch_size, seqlen)
         attention = matching_score.softmax(dim=-1)
         attended_content = (
-            attention.unsqueeze(-1) * article_features.unsqueeze(1)
-        ).sum(dim=2)
-        # (batch_size, choices_num, hidden_size)
+            attention.unsqueeze(-1) * article_features
+        ).sum(dim=1)
+        # (batch_size, seqlen)
 
-        logtis = self.predict(attended_content + query_features).squeeze(-1)
-        # (batch_size, choices_num)
-        return logtis
-
-    def forward(self, answer, **kwargs):
-        prediction = self.infer(**kwargs)
-        return prediction, F.cross_entropy(prediction, answer)
+        logits = self.predict(torch.cat([attended_content, question_features], dim=-1)).squeeze(-1)
+        # (batch_size)
+        return logits

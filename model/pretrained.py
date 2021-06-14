@@ -69,7 +69,8 @@ class PretrainModel(nn.Module):
     def output_size(self):
         return self.model.config.hidden_size
 
-    def forward(self, sentences: List[str], device="cuda"):
+    def forward(self, sentences: List[str], device="cuda", embedding_mode = "last_cls"):
+        embedding_mode = embedding_mode or self.embedding_mode
         tokenizer_result = self.tokenizer(
             sentences,
             padding="longest",
@@ -93,19 +94,22 @@ class PretrainModel(nn.Module):
             }
             model_result = self.model(**minibatch, output_hidden_states=True)
 
-            if self.embedding_mode == "last_cls":
+            if embedding_mode == "last_cls":
                 output = model_result.last_hidden_state[:, 0, :]
-            elif self.embedding_mode == "all_cls":
+            elif embedding_mode == "all_cls":
                 all_hidden_states = torch.stack(model_result.hidden_states, dim=0)
                 all_cls = all_hidden_states[:, :, 0, :]
                 output = (F.softmax(self.weights, dim=-1).view(-1, 1, 1) * all_cls).sum(
                     dim=0
                 )
-            elif self.embedding_mode == "pooler_output":
+            elif embedding_mode == "pooler_output":
                 output = model_result.pooler_output
-            elif self.embedding_mode == "mean":
+            elif embedding_mode == "mean":
                 output = model_result.last_hidden_state.mean(dim=1)
+            elif embedding_mode == "last_seq":
+                output = model_result.last_hidden_state
             else:
+                print(embedding_mode)
                 raise ValueError
 
             # output: (minibatch, hidden_size)

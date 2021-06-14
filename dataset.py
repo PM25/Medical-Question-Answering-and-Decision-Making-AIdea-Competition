@@ -236,7 +236,7 @@ class qa_retrival_dataset(Dataset):
             self.converter = opencc.OpenCC(self.configs["t2s"])
 
     
-    def retrival1(self, role_and_dialogue, question_text, choice_text, spkr_mode=None):
+    def retrival1(self, role_and_dialogue, query_text, spkr_mode=None):
         span_size = self.configs["span_size"]
         max_context_size = self.configs["max_context_size"]
 
@@ -247,9 +247,9 @@ class qa_retrival_dataset(Dataset):
 
         context_range = torch.zeros(len(full_dialogue))
         substrings = []
-        for length in reversed(range(1, len(choice_text))):
-            for start in range(len(choice_text) - length):
-                substrings.append(choice_text[start : start + length])
+        for length in reversed(range(1, len(query_text))):
+            for start in range(len(query_text) - length):
+                substrings.append(query_text[start : start + length])
 
         for substring in substrings:
             for result in re.finditer(substring, full_dialogue):
@@ -257,7 +257,7 @@ class qa_retrival_dataset(Dataset):
                     context_range[result.start() - span_size : result.end() + span_size] = 1
 
         if context_range.sum() == 0:
-            return "不"
+            return ""
 
         filtered = [content for inside, content in zip(context_range, zip(char_level_role, full_dialogue)) if inside]
         current_role = filtered[0][0]
@@ -401,7 +401,9 @@ class qa_multiple_dataset(qa_retrival_dataset):
                 else:
                     datums = sampled
 
-            for datum in tqdm(datums):
+            for i, datum in enumerate(tqdm(datums)):
+                # if i > 10:
+                #     break
                 _id = datum["id"]
                 article = normalize("NFKC", datum["text"])
 
@@ -426,15 +428,18 @@ class qa_multiple_dataset(qa_retrival_dataset):
                             has_answer = True
                     else:
                         is_answer = None
-
+                    
+                    choice_text = text_preprocessing(choice_text)
                     role_and_dialogue = split_sent(article, self.configs["spkr"])
                     retrival_fn = eval(self.configs["retrival_fn"])
-                    sub_article = retrival_fn(role_and_dialogue, question_text, choice_text, self.configs["spkr"])
+                    question_article = retrival_fn(role_and_dialogue, question_text, self.configs["spkr"])
+                    choice_article = retrival_fn(role_and_dialogue, choice_text, self.configs["spkr"])
 
                     data_point.append(
                         {
                             "qa_id": _id,
-                            "article": sub_article,
+                            "question_article": question_article,
+                            "choice_article": choice_article,
                             "question": question_text,
                             "choice": choice_text,
                             "is_answer": is_answer if is_answer is not None else 0,

@@ -10,8 +10,8 @@ device_id: 0 # cpu: -1, gpu: >= 0
 
 # train
 seed: 1126
-epochs: 4
-batch_size: 10
+epochs: 5
+batch_size: 3
 learning_rate: 0.0001
 warmup_steps: 1000
 val_size: 0.2
@@ -19,7 +19,7 @@ val_size: 0.2
 log_step: 1
 
 # model
-model_class: RetrivalMultiple
+model_class: ClsAttention
 model: Roberta
 hidden_dim: 256
 dropout: 0.2
@@ -46,7 +46,7 @@ spkr_mode: 'token' # can be None, 'content', 'token'
 ClsAttention:
   pretrained_cfg:
     pretrained: Roberta
-    trainable_from: 11
+    trainable_from: -1
     embedding_mode: pooler_output
     max_tokens: 10000
   hidden_size: 128
