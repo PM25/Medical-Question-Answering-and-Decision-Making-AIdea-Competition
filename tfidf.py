@@ -1,3 +1,4 @@
+import re
 import csv
 import yaml
 import jieba
@@ -33,22 +34,22 @@ jieba.analyse.set_stop_words("data/stopwords.txt")
 seed = configs["seed"]
 set_random_seed(seed)
 
-MIN_DF = 0.1  # 0.155
-MAX_DF = 0.8  # 0.72
+MIN_DF = 0.15  # 0.155
+MAX_DF = 0.72  # 0.72
 
 
 models = {
-    # "LogisticRegression": lambda: LogisticRegression(random_state=seed),
-    # "RandomForestClassifier": lambda: RandomForestClassifier(random_state=seed),
-    "HistGradientBoostingClassifier": lambda: HistGradientBoostingClassifier(
-        random_state=seed
-    ),
+    "LogisticRegression": lambda: LogisticRegression(random_state=seed),
+    "RandomForestClassifier": lambda: RandomForestClassifier(random_state=seed),
+    # "HistGradientBoostingClassifier": lambda: HistGradientBoostingClassifier(
+    #     random_state=seed
+    # ),
     "RBF_SVM": lambda: SVC(probability=True, random_state=seed),
-    "LinearSVM": lambda: SVC(kernel="linear", probability=True, random_state=seed),
+    # "LinearSVM": lambda: SVC(kernel="linear", probability=True, random_state=seed),
     "MLPClassifier": lambda: MLPClassifier(
         max_iter=500, warm_start=True, random_state=seed
     ),
-    "LogisticRegressionCV": lambda: LogisticRegressionCV(random_state=seed),
+    # "LogisticRegressionCV": lambda: LogisticRegressionCV(random_state=seed),
     # "KNeighborsClassifier": lambda: KNeighborsClassifier(n_neighbors=2),
 }
 
@@ -58,7 +59,6 @@ with open("data/stopwords.txt", "r") as f:
 
 break_words = [
     "的藥",
-    "半年",
     "你現",
     "下禮",
     "阿因",
@@ -71,6 +71,13 @@ break_words = [
     "候會",
     "務型",
     "們有",
+    "我調",
+    "是膽",
+    "膽腸",
+    "胃科",
+    "藥試",
+    "些藥",
+    "明胖",
 ]
 
 with open("data/vocab.txt", "r") as f:
@@ -89,6 +96,7 @@ special_words_mapping = {
     "菜花": "梅毒",
     "防H": "防毒",
     "U=U": "測不到毒量",
+    "炮": "砲",
     # "a肝": "肝炎",
     # "b肝": "肝炎",
     # "c肝": "肝炎",
@@ -104,8 +112,9 @@ def get_catgorical_feat(corpus):
 
     cat_feat = np.zeros((len(corpus), len(key_term)))
     for i in range(len(corpus)):
+        article = corpus[i].replace(" ", "")
         for j in range(len(key_term)):
-            if key_term[j] in corpus[i]:
+            if key_term[j] in article:
                 cat_feat[i, j] = 1.0
 
     return cat_feat
@@ -117,18 +126,28 @@ def replace_words(text):
     return text
 
 
+def get_sent_num(corpus):
+    n_sent = []
+    for article in corpus:
+        sents = re.split(r"[。!?？！。]", article)
+        n_sent.append((len(sents) + 1) // 50)
+    return np.expand_dims(n_sent, axis=1)
+
+
 def process_data(dataset):
     corpus = []
     answer = []
     article_id = []
+
     for datum in dataset:
         article = " ".join([word for sent in datum["article"] for word in sent])
         article = article.lower()
         sent_words = jieba.cut(article)
         sent = " ".join(sent_words)
-        corpus.append(sent)
         answer.append(datum["label"].tolist())
         article_id.append(datum["article_id"])
+        corpus.append(sent)
+
     return corpus, answer, article_id
 
 
@@ -153,6 +172,14 @@ def train_and_evaluate(corpus, answer, min_df=0.1, max_df=0.8, seed=1009, val_si
         preds = predict_class(clfs, tfidf_vec, test_x)
         val_f1 = f1_score(test_y, preds)
 
+        with open("output.txt", "a") as f:
+            for x, a, b, c in zip(test_x, probs, preds, test_y):
+                if b != c:
+                    x = re.sub(" +", " ", x)
+                    f.write(f"{x}\nprob:{a}, label: {c}\n\n")
+            f.write("=" * 10 + "\n")
+        # for a, b, c in zip(test_x, probs, test_y):
+        #     print(a, b, c)
         print(classification_report(test_y, preds))
 
         return clfs, (train_score, val_roc, val_f1)
@@ -167,11 +194,13 @@ def train(corpus, answer, min_df=0.1, max_df=0.8):
         min_df=min_df,
         max_df=max_df,
     )
+
     tfidf_vec.fit(corpus)
 
     tfidf_x = tfidf_vec.transform(corpus)
     cat_feat = get_catgorical_feat(corpus)
-    train_x = np.concatenate((tfidf_x.todense(), cat_feat), 1)
+    n_sent = get_sent_num(corpus)
+    train_x = np.concatenate((tfidf_x.todense(), cat_feat, n_sent), 1)
 
     train_y = answer.copy()
 
@@ -180,13 +209,19 @@ def train(corpus, answer, min_df=0.1, max_df=0.8):
         clf = model().fit(train_x, train_y)
         clfs.append(clf)
 
+    # weight = list(tfidf_vec.vocabulary_.items())
+    # for i in range(len(weight)):
+    #     weight[i] = (weight[i][0], round(clfs[0].coef_[0][weight[i][1]], 2))
+    # print(sorted(weight, key=lambda i: i[1], reverse=True))
+
     return clfs, tfidf_vec
 
 
 def predict_prob(classifiers, tfidf_vec, corpus):
     tfidf_x = tfidf_vec.transform(corpus)
     cat_feat = get_catgorical_feat(corpus)
-    data_x = np.concatenate((tfidf_x.todense(), cat_feat), 1)
+    n_sent = get_sent_num(corpus)
+    data_x = np.concatenate((tfidf_x.todense(), cat_feat, n_sent), 1)
 
     probs = []
     for clf in classifiers:
@@ -226,7 +261,7 @@ if __name__ == "__main__":
 
     print("[Testing with 50 different seeds]")
     train_scores, val_rocs, val_f1s = [], [], []
-    for _ in range(100):
+    for _ in range(50):
         seed = random.randint(0, 9999)
         clfs, (train_score, val_roc, val_f1) = train_and_evaluate(
             corpus, answer, MIN_DF, MAX_DF, seed=seed, val_size=configs["val_size"]
