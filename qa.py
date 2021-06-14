@@ -134,6 +134,7 @@ def save_preds(model, data_loader):
     model.to(torch_device)
 
     all_preds = []
+    all_probs = []
     qa_ids, logits, labels = [], [], []
     for step, batch in enumerate(data_loader):
         for key in list(batch.keys()):
@@ -151,8 +152,10 @@ def save_preds(model, data_loader):
             assert len(start_indices) == len(pred_idx)
             for idx, start in zip(pred_idx, start_indices):
                 candidate = batch["label"][start : start + 3]
+                assert candidate == ["A", "B", "C"]
                 qa_id = batch["qa_id"][start : start + 3]
                 all_preds.append((qa_id[0], candidate[idx]))
+                all_probs.append((qa_id[0], logit[start // 3]))
 
     if isinstance(data_loader.dataset, qa_binary_dataset):
         final_predict = defaultdict(list)
@@ -177,6 +180,11 @@ def save_preds(model, data_loader):
         csvwriter.writerow(["id", "answer"])
         for _id, pred in all_preds:
             csvwriter.writerow([_id, pred])
+    with open("output/qa_probs.csv", "w") as f:
+        csvwriter = csv.writer(f, delimiter=",")
+        csvwriter.writerow(["id", "A", "B", "C"])
+        for _id, (a, b, c) in all_probs:
+            csvwriter.writerow([_id, a, b, c])
     with open("output/qa_configs.yml", "w") as yaml_file:
         yaml.dump(configs, yaml_file, default_flow_style=False)
     print("*Successfully saved prediction to output/qa.csv")
