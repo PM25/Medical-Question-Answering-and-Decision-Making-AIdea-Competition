@@ -61,6 +61,8 @@ class PretrainModel(nn.Module):
 
         trainable = False
         for name, para in self.model.named_parameters():
+            if "embeddings" in name:
+                para.requires_grad = True
             if f"layer.{trainable_from}" in name:
                 trainable = True
             para.requires_grad = trainable
